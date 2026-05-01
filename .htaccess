@@ -1,0 +1,24 @@
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block access to core, templates, config
+    RewriteRule ^(core|templates|config\.php) - [F,L]
+
+    # Do not execute PHP files from uploaded media/storage.
+    RewriteRule ^storage/.*\.(php|phtml|phar)$ - [F,L]
+
+    # Pass everything except real files/directories to page.php
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} !/(admin|assets|storage)(/|$)
+    RewriteCond %{REQUEST_URI} !/(install|index|page)\.php$
+    RewriteRule ^(.+)$ page.php?slug=$1 [B,L,QSA]
+</IfModule>
+
+# Protect configuration and SQLite database files.
+<FilesMatch "^(config\.php|database\.sqlite)$">
+    Require all denied
+</FilesMatch>
