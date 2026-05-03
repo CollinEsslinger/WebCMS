@@ -13,6 +13,10 @@
   const canvas = document.getElementById('visualEditor');
   const blocksJsonInput = document.getElementById('blocksJson');
   const pageForm = document.getElementById('pageForm');
+  const mediaUploadForm = document.getElementById('mediaUploadForm');
+  const mediaFileInput = document.getElementById('mediaFile');
+  const editorMediaGrid = document.getElementById('editorMediaGrid');
+  let mediaLibrary = Array.isArray(window.CMS_MEDIA_LIBRARY) ? window.CMS_MEDIA_LIBRARY.slice() : [];
 
   if (!canvas || !blocksJsonInput || !pageForm) return;
 
@@ -65,6 +69,43 @@
 
   function cloneData(value) {
     return JSON.parse(JSON.stringify(value));
+  }
+
+  function mediaKind(item) {
+    if (!item || !item.mime) return 'file';
+    if (item.mime.startsWith('image/')) return 'image';
+    if (item.mime.startsWith('video/')) return 'video';
+    return 'file';
+  }
+
+  function mediaMatches(item, types) {
+    if (!types || types === 'any') return true;
+    const allowed = String(types).split(',').map(t => t.trim()).filter(Boolean);
+    return allowed.includes(mediaKind(item));
+  }
+
+  function addMediaItem(item) {
+    if (!item || !item.url) return;
+    mediaLibrary = [item].concat(mediaLibrary.filter(existing => existing.id !== item.id));
+    renderEditorMediaGrid();
+  }
+
+  function renderEditorMediaGrid() {
+    if (!editorMediaGrid) return;
+    editorMediaGrid.innerHTML = mediaLibrary.map(item => {
+      const kind = mediaKind(item);
+      const thumb = kind === 'image'
+        ? `<img src="${ce(item.url)}" alt="${ce(item.name || '')}">`
+        : `<span>${kind === 'video' ? 'Video' : 'Datei'}</span>`;
+      return `<button type="button" class="media-thumb" data-media-url="${ce(item.url)}" data-media-mime="${ce(item.mime || '')}" title="${ce(item.name || '')}">
+        ${thumb}<span class="media-thumb-name">${ce(item.name || '')}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function mediaPickButton(types, targetPath, label, itemIndex = '') {
+    const idx = itemIndex === '' ? '' : ` data-item-index="${itemIndex}"`;
+    return `<button type="button" class="inline-mini-btn media-pick-btn" data-inline-action="select-media" data-media-types="${types}" data-target-path="${targetPath}"${idx}>${ce(label || 'Auswaehlen')}</button>`;
   }
 
   function ensureArray(settings, key, fallback) {
@@ -172,7 +213,8 @@
       testimonial: () => ({ stars: 5, text: 'Neues Zitat...', author: 'Autor', initials: '', color: '#6366f1' }),
       accordion: () => ({ title: 'Neue Frage?', body: 'Antwort...' }),
       tab: () => ({ title: 'Neuer Tab', content: 'Tab-Inhalt...' }),
-      'form-field': () => ({ type: 'text', label: 'Neues Feld', placeholder: '', required: false })
+      'form-field': () => ({ type: 'text', label: 'Neues Feld', placeholder: '', required: false }),
+      'gallery-image': () => ({ url: '', alt: 'Neues Bild' })
     };
     return factories[kind] ? factories[kind]() : {};
   }
@@ -354,6 +396,48 @@
   function renderSectionLabel(s) {
     const value = s.label ?? '';
     return `<div class="inline-section-label" contenteditable="true" data-field="label" data-empty-placeholder="Label">${ce(value)}</div>`;
+  }
+
+  function openMediaPicker({ types = 'image', title = 'Medium auswaehlen', onSelect }) {
+    document.querySelector('.media-picker-overlay')?.remove();
+    const items = mediaLibrary.filter(item => mediaMatches(item, types));
+    const overlay = document.createElement('div');
+    overlay.className = 'block-settings-overlay media-picker-overlay';
+    overlay.innerHTML = `<div class="block-settings-modal media-picker-modal">
+      <div class="modal-head">
+        <h3>${ce(title)}</h3>
+        <button type="button" class="modal-close" data-media-close aria-label="Schliessen">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="media-picker-grid">
+          ${items.length ? items.map(item => {
+            const kind = mediaKind(item);
+            const thumb = kind === 'image'
+              ? `<img src="${ce(item.url)}" alt="${ce(item.name || '')}">`
+              : `<span>${kind === 'video' ? 'Video' : 'Datei'}</span>`;
+            return `<button type="button" class="media-picker-item" data-url="${ce(item.url)}" data-name="${ce(item.name || '')}" data-mime="${ce(item.mime || '')}">
+              <span class="media-picker-thumb">${thumb}</span>
+              <span class="media-picker-name">${ce(item.name || '')}</span>
+            </button>`;
+          }).join('') : '<p class="media-picker-empty">Keine passende Datei vorhanden.</p>'}
+        </div>
+      </div>
+    </div>`;
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay || event.target.closest('[data-media-close]')) close();
+      const itemButton = event.target.closest('.media-picker-item');
+      if (!itemButton) return;
+      onSelect?.({
+        url: itemButton.dataset.url || '',
+        name: itemButton.dataset.name || '',
+        mime: itemButton.dataset.mime || ''
+      });
+      close();
+    });
+    document.body.appendChild(overlay);
   }
 
   function renderBlock(block, index) {
@@ -574,6 +658,9 @@
       // ── image ─────────────────────────────────────────────────────────────
       case 'image':
         preview = `<div class="preview-image">
+          <div class="inline-media-actions" contenteditable="false">
+            ${mediaPickButton('image', 'url', s.url ? 'Bild aendern' : 'Bild auswaehlen')}
+          </div>
           ${s.url
             ? `<div class="img-card" style="max-width:${s.width === 'narrow' ? '560px' : (s.width === 'medium' ? '840px' : '100%')};margin:0 auto"><img src="${ce(s.url)}" alt="${ce(s.alt||'')}" style="width:100%;border-radius:8px"></div>`
             : `<div class="preview-image-placeholder"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="width:64px;height:64px"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/></svg><p>Kein Bild ausgewählt</p></div>`}
@@ -583,20 +670,49 @@
 
       // ── gallery ───────────────────────────────────────────────────────────
       case 'gallery': {
-        const galleryItems = s.items || [];
+        const galleryItems = ensureArray(s, 'items', []);
         preview = `<div class="preview-image">
           ${renderSectionLabel(s)}
           ${s.heading ? `<h2 contenteditable="true" data-field="heading" style="margin-bottom:2rem;font-size:1.875rem;font-weight:700">${ce(s.heading)}</h2>` : ''}
-          ${galleryItems.filter(g => g.url).length > 0
-            ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem">${galleryItems.filter(g=>g.url).map(g=>`<img src="${ce(g.url)}" alt="${ce(g.alt||'')}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px">`).join('')}</div>`
+          ${inlineAddButton('gallery-image', 'items', 'Bild hinzufuegen')}
+          ${galleryItems.length > 0
+            ? `<div class="editor-gallery-grid">${galleryItems.map((g, i)=>`<div class="editor-gallery-item inline-edit-item">
+                ${inlineItemControls('items', i, true)}
+                ${g.url ? `<img src="${ce(g.url)}" alt="${ce(g.alt||'')}">` : '<div class="preview-image-placeholder"><p>Kein Bild</p></div>'}
+                <div class="inline-media-actions" contenteditable="false">${mediaPickButton('image', `items.${i}.url`, g.url ? 'Aendern' : 'Auswaehlen', i)}</div>
+                <div contenteditable="true" data-field="items.${i}.alt" class="inline-alt-edit">${ce(g.alt || '')}</div>
+              </div>`).join('')}</div>`
             : '<div class="preview-image-placeholder"><p>Keine Bilder ausgewählt</p></div>'}
         </div>`;
         break;
       }
 
       // ── video ─────────────────────────────────────────────────────────────
+      case 'carousel': {
+        const carouselItems = ensureArray(s, 'items', []);
+        const speed = parseInt(s.speed || 35) || 35;
+        preview = `<div class="preview-image">
+          ${renderSectionLabel(s)}
+          ${s.heading ? `<h2 contenteditable="true" data-field="heading" style="margin-bottom:2rem;font-size:1.875rem;font-weight:700">${ce(s.heading)}</h2>` : ''}
+          ${inlineAddButton('gallery-image', 'items', 'Bild hinzufuegen')}
+          <div class="editor-carousel-strip" style="--carousel-speed:${speed}s">
+            ${carouselItems.length ? carouselItems.map((g, i)=>`<div class="editor-carousel-item inline-edit-item">
+              ${inlineItemControls('items', i, true)}
+              ${g.url ? `<img src="${ce(g.url)}" alt="${ce(g.alt||'')}">` : '<div class="preview-image-placeholder"><p>Kein Bild</p></div>'}
+              <div class="inline-media-actions" contenteditable="false">${mediaPickButton('image', `items.${i}.url`, g.url ? 'Aendern' : 'Auswaehlen', i)}</div>
+              <div contenteditable="true" data-field="items.${i}.alt" class="inline-alt-edit">${ce(g.alt || '')}</div>
+            </div>`).join('') : '<div class="preview-image-placeholder"><p>Keine Bilder ausgewaehlt</p></div>'}
+          </div>
+        </div>`;
+        break;
+      }
+
       case 'video':
         preview = `<div class="preview-video">
+          <div class="inline-media-actions" contenteditable="false">
+            ${mediaPickButton('video', 'url', s.url ? 'Video aendern' : 'Video auswaehlen')}
+            ${mediaPickButton('image', 'poster', s.poster ? 'Poster aendern' : 'Poster auswaehlen')}
+          </div>
           <div class="video-thumb" style="${s.poster?`background-image:url('${ce(s.poster)}');background-size:cover`:''}">
             <div class="play-circle"><svg fill="currentColor" viewBox="0 0 24 24" style="width:24px;height:24px"><path d="M8 5v14l11-7z"/></svg></div>
           </div>
@@ -815,7 +931,22 @@
           const path = btn.dataset.listPath;
           const kind = btn.dataset.listKind;
           const list = ensureArray(settings, path, []);
-          list.push(newInlineItem(kind));
+          const newItem = newInlineItem(kind);
+          list.push(newItem);
+          if (kind === 'gallery-image') {
+            openMediaPicker({
+              types: 'image',
+              title: 'Bild auswaehlen',
+              onSelect: (media) => {
+                newItem.url = media.url;
+                if (!newItem.alt) newItem.alt = media.name || '';
+                block.settings = settings;
+                selectedBlockIndex = index;
+                markDirty();
+                renderCanvas();
+              }
+            });
+          }
         } else if (action === 'remove-item') {
           const path = btn.dataset.listPath;
           const list = ensureArray(settings, path, []);
@@ -854,6 +985,23 @@
         } else if (action === 'toggle-required') {
           const item = ensureArray(settings, 'fields', [])[parseInt(btn.dataset.itemIndex)];
           if (item) item.required = !item.required;
+        } else if (action === 'select-media') {
+          openMediaPicker({
+            types: btn.dataset.mediaTypes || 'image',
+            title: 'Medium auswaehlen',
+            onSelect: (media) => {
+              setFieldValue(settings, btn.dataset.targetPath, media.url);
+              if (/^items\.\d+\.url$/.test(btn.dataset.targetPath || '')) {
+                const item = getFieldValue(settings, btn.dataset.targetPath.replace(/\.url$/, ''));
+                if (item && !item.alt) item.alt = media.name || '';
+              }
+              block.settings = settings;
+              selectedBlockIndex = index;
+              markDirty();
+              renderCanvas();
+            }
+          });
+          return;
         }
 
         block.settings = settings;
@@ -1063,7 +1211,7 @@
         <label><span>Button-Link</span><input type="text" name="buttonUrl" value="${esc(s.buttonUrl||'')}" class="w-full"></label>`;
     } else if (type === 'image') {
       formFields = `
-        <label><span>Bild-URL</span><input type="text" name="url" value="${esc(s.url||'')}" class="w-full" id="imageUrlInput"></label>
+        <label><span>Bild-URL</span><div class="media-input-row"><input type="text" name="url" value="${esc(s.url||'')}" class="w-full" id="imageUrlInput"><button type="button" class="btn secondary sm" data-modal-media="image" data-modal-target="url">Auswaehlen</button></div></label>
         <label><span>Alt-Text</span><input type="text" name="alt" value="${esc(s.alt||'')}" class="w-full"></label>
         <label><span>Bildbreite</span><select name="width" class="w-full">
           <option value="full" ${(s.width||'full')==='full'?'selected':''}>Voll</option>
@@ -1079,10 +1227,21 @@
         <label><span>Überschrift</span><input type="text" name="heading" value="${esc(s.heading||'')}" class="w-full"></label>
         <div id="galleryContainer"></div>
         <button type="button" class="btn secondary sm" onclick="addGalleryImage()">+ Bild hinzufügen</button>`;
+    } else if (type === 'carousel') {
+      formFields = `
+        <label><span>Label (optional)</span><input type="text" name="label" value="${esc(s.label||'')}" class="w-full"></label>
+        <label><span>Ãœberschrift</span><input type="text" name="heading" value="${esc(s.heading||'')}" class="w-full"></label>
+        <label><span>Geschwindigkeit</span><select name="speed" class="w-full">
+          <option value="20" ${(s.speed||'35')==='20'?'selected':''}>Schnell</option>
+          <option value="35" ${(!s.speed||s.speed==='35')?'selected':''}>Normal</option>
+          <option value="55" ${s.speed==='55'?'selected':''}>Langsam</option>
+        </select></label>
+        <div id="galleryContainer"></div>
+        <button type="button" class="btn secondary sm" onclick="addGalleryImage()">+ Bild hinzufÃ¼gen</button>`;
     } else if (type === 'video') {
       formFields = `
-        <label><span>Video-URL</span><input type="text" name="url" value="${esc(s.url||'')}" class="w-full"></label>
-        <label><span>Poster/Thumbnail-URL</span><input type="text" name="poster" value="${esc(s.poster||'')}" class="w-full"></label>
+        <label><span>Video-URL</span><div class="media-input-row"><input type="text" name="url" value="${esc(s.url||'')}" class="w-full"><button type="button" class="btn secondary sm" data-modal-media="video" data-modal-target="url">Auswaehlen</button></div></label>
+        <label><span>Poster/Thumbnail-URL</span><div class="media-input-row"><input type="text" name="poster" value="${esc(s.poster||'')}" class="w-full"><button type="button" class="btn secondary sm" data-modal-media="image" data-modal-target="poster">Auswaehlen</button></div></label>
         <label><span>Untertitel Titel</span><input type="text" name="captionTitle" value="${esc(s.captionTitle||'')}" class="w-full"></label>
         <label><span>Untertitel Text</span><input type="text" name="captionText" value="${esc(s.captionText||'')}" class="w-full"></label>`;
     } else if (type === 'form') {
@@ -1153,8 +1312,21 @@
     if (type === 'accordion' && s.items) s.items.forEach(item => addAccordionItem(item));
     if (type === 'tabs' && s.items) s.items.forEach(item => addTabItem(item));
     if (type === 'timeline' && s.items) s.items.forEach(item => addTimelineItem(item));
-    if (type === 'gallery' && s.items) s.items.forEach(item => addGalleryImage(item));
+    if ((type === 'gallery' || type === 'carousel') && s.items) s.items.forEach(item => addGalleryImage(item));
     if (type === 'form' && s.fields) s.fields.forEach(item => addFormField(item));
+
+    overlay.querySelectorAll('[data-modal-media]').forEach(button => {
+      button.addEventListener('click', () => {
+        const target = overlay.querySelector(`[name="${button.dataset.modalTarget}"]`);
+        openMediaPicker({
+          types: button.dataset.modalMedia || 'image',
+          title: 'Medium auswaehlen',
+          onSelect: (media) => {
+            if (target) target.value = media.url;
+          }
+        });
+      });
+    });
   }
 
   function esc(str) {
@@ -1333,9 +1505,21 @@
     const d = document.createElement('div');
     d.className = 'repeat-item';
     d.innerHTML = `<h5>Bild ${i+1} <button type="button" class="remove" data-confirm-remove="Bild wirklich entfernen?" data-remove-target=".repeat-item">Entfernen</button></h5>
-      <label><span>URL</span><input type="text" name="items[${i}][url]" value="${esc(data.url||'')}" class="w-full"></label>
+      <label><span>URL</span><div class="media-input-row"><input type="text" name="items[${i}][url]" value="${esc(data.url||'')}" class="w-full"><button type="button" class="btn secondary sm" data-gallery-media="${i}">Auswaehlen</button></div></label>
       <label><span>Alt-Text</span><input type="text" name="items[${i}][alt]" value="${esc(data.alt||'')}" class="w-full"></label>`;
     c.appendChild(d);
+    d.querySelector('[data-gallery-media]')?.addEventListener('click', () => {
+      openMediaPicker({
+        types: 'image',
+        title: 'Bild auswaehlen',
+        onSelect: (media) => {
+          const urlInput = d.querySelector(`[name="items[${i}][url]"]`);
+          const altInput = d.querySelector(`[name="items[${i}][alt]"]`);
+          if (urlInput) urlInput.value = media.url;
+          if (altInput && !altInput.value) altInput.value = media.name || '';
+        }
+      });
+    });
   };
 
   window.addFormField = function(data = {}) {
@@ -1441,6 +1625,61 @@
   // ---------------------------------------------------------------------------
   // Slug Preview  (IDs match editor.php: slug_part, parent_id, slugFullPreview)
   // ---------------------------------------------------------------------------
+  async function uploadEditorMedia(file) {
+    if (!mediaUploadForm || !file) return;
+    const data = new FormData(mediaUploadForm);
+    data.set('file', file);
+    data.set('ajax', '1');
+    try {
+      const res = await fetch(mediaUploadForm.action, { method: 'POST', body: data });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.message || 'Upload fehlgeschlagen');
+      addMediaItem({ id: json.id, url: json.url, mime: json.mime, name: json.name, size: json.size || '' });
+      toast('success', 'Datei hochgeladen', json.name || 'Die Datei ist in der Mediathek.');
+    } catch (error) {
+      toast('error', 'Upload fehlgeschlagen', error.message || 'Datei konnte nicht hochgeladen werden.');
+    } finally {
+      if (mediaFileInput) mediaFileInput.value = '';
+    }
+  }
+
+  if (mediaFileInput) {
+    mediaFileInput.addEventListener('change', (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const file = mediaFileInput.files?.[0];
+      if (file) uploadEditorMedia(file);
+    }, true);
+  }
+
+  if (mediaUploadForm) {
+    mediaUploadForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const file = mediaFileInput?.files?.[0];
+      if (file) uploadEditorMedia(file);
+    });
+  }
+
+  document.addEventListener('click', (event) => {
+    const thumb = event.target.closest('#editorMediaGrid .media-thumb');
+    if (!thumb) return;
+    const url = thumb.dataset.mediaUrl;
+    const mime = thumb.dataset.mediaMime || '';
+    if (!url || selectedBlockIndex === null) return;
+    const block = blocks[selectedBlockIndex];
+    if (!block) return;
+    if (block.type === 'image' && mime.startsWith('image/')) {
+      block.settings.url = url;
+    } else if (block.type === 'video' && mime.startsWith('video/')) {
+      block.settings.url = url;
+    } else {
+      return;
+    }
+    markDirty();
+    renderCanvas();
+    toast('success', 'Medium gesetzt', 'Die Auswahl wurde in den Block uebernommen.');
+  });
+
   const titleInput    = document.getElementById('title');
   const slugPartInput = document.getElementById('slug_part');
   const parentSelect  = document.getElementById('parent_id');

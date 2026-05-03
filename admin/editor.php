@@ -30,17 +30,17 @@ $flashError = $_SESSION['flash_error'] ?? '';
 unset($_SESSION['flash_error']);
 ?>
 <!DOCTYPE html>
-<html lang="de" data-theme="<?= e(setting('theme','light')) ?>">
+<html lang="de" data-theme="<?= e(safe_theme(setting('theme','light'))) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title>Editor – <?= e($page['title']) ?></title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+    <link href="<?= e(google_fonts_url()) ?>" rel="stylesheet">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/site.css')) ?>">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/admin.css')) ?>">
-    <style>:root{--accent:<?= e(setting('accent_color', DEFAULT_ACCENT)) ?>;--accent-light:color-mix(in srgb,var(--accent) 14%,transparent);--accent-dark:color-mix(in srgb,var(--accent) 75%,#000)}</style>
+    <style>:root{<?= theme_css_vars() ?>}</style>
 </head>
 <body class="editor-body">
 
@@ -154,15 +154,19 @@ unset($_SESSION['flash_error']);
                 <label class="upload-zone" for="mediaFile" style="padding:14px;display:block;cursor:pointer;margin-bottom:10px">
                     <div style="font-size:1.4rem;margin-bottom:4px">📎</div>
                     <div style="font-size:.75rem;color:var(--text-subtle)">Datei wählen</div>
+                    <div style="font-size:.7rem;color:var(--text-subtle);margin-top:3px">max. <?= e(format_bytes(effective_upload_max_bytes())) ?></div>
                 </label>
                 <div class="media-grid" id="editorMediaGrid">
                     <?php foreach ($mediaList as $m):
                         $url = media_url($m);
                         $isImg = strpos($m['mime'], 'image/') === 0;
+                        $isVideo = strpos($m['mime'], 'video/') === 0;
                     ?>
                         <button type="button" class="media-thumb" data-media-url="<?= e($url) ?>" data-media-mime="<?= e($m['mime']) ?>" title="<?= e($m['original_name']) ?>">
                             <?php if ($isImg): ?>
                                 <img src="<?= e($url) ?>" alt="<?= e($m['original_name']) ?>">
+                            <?php elseif ($isVideo): ?>
+                                <span>Video</span>
                             <?php else: ?>
                                 <span>📄</span>
                             <?php endif; ?>
@@ -186,7 +190,7 @@ unset($_SESSION['flash_error']);
         <form id="mediaUploadForm" action="<?= e(site_url('/admin/media_upload.php')) ?>" method="post" enctype="multipart/form-data">
             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
             <input type="file" id="mediaFile" name="file" style="display:none"
-                   accept=".jpg,.jpeg,.png,.webp,.gif,.svg,.mp4,.webm,.pdf">
+                   accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.webm,.pdf">
         </form>
     </aside>
 
@@ -215,6 +219,17 @@ unset($_SESSION['flash_error']);
 
 <script src="<?= e(site_url('/assets/js/theme.js')) ?>"></script>
 <script src="<?= e(site_url('/assets/js/admin.js')) ?>"></script>
+<script>
+window.CMS_MEDIA_LIBRARY = <?= json_encode(array_map(static function ($m) {
+    return [
+        'id' => (int)$m['id'],
+        'url' => media_url($m),
+        'mime' => (string)$m['mime'],
+        'name' => (string)$m['original_name'],
+        'size' => format_bytes((int)$m['size']),
+    ];
+}, $mediaList), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+</script>
 <script src="<?= e(site_url('/assets/js/editor.js')) ?>"></script>
 </body>
 </html>

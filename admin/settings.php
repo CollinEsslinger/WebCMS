@@ -21,7 +21,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $allowed = ['site_name','logo_text','logo_accent_text','logo_text_after','site_tagline','accent_color','theme','font_display','font_body','meta_default'];
         foreach ($allowed as $key) {
-            if (isset($_POST[$key])) set_setting($key, (string)$_POST[$key]);
+            if (!isset($_POST[$key])) continue;
+            $value = (string)$_POST[$key];
+            if ($key === 'accent_color') {
+                $value = normalize_hex_color($value);
+            }
+            if ($key === 'theme' && !in_array($value, ['light', 'dark'], true)) {
+                $value = safe_theme($value);
+            }
+            if ($key === 'font_display') {
+                $value = safe_font_family($value, 'Syne');
+            }
+            if ($key === 'font_body') {
+                $value = safe_font_family($value, 'DM Sans');
+            }
+            set_setting($key, $value);
         }
         $_SESSION['flash'] = 'Einstellungen gespeichert.';
     } catch (Throwable $e) {
@@ -31,16 +45,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="de" data-theme="<?= e(setting('theme','light')) ?>">
+<html lang="de" data-theme="<?= e(safe_theme(setting('theme','light'))) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Einstellungen – WebCMS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+    <link href="<?= e(google_fonts_url()) ?>" rel="stylesheet">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/site.css')) ?>">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/admin.css')) ?>">
-    <style>:root{--accent:<?= e(setting('accent_color', DEFAULT_ACCENT)) ?>;--accent-light:color-mix(in srgb,var(--accent) 14%,transparent);--accent-dark:color-mix(in srgb,var(--accent) 75%,#000)}</style>
+    <style>:root{<?= theme_css_vars() ?>}</style>
 </head>
 <body class="admin-body">
 <?php include __DIR__ . '/_sidebar.php'; ?>
@@ -85,29 +99,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="form-group">
                         <label class="form-label">Akzentfarbe</label>
                         <div style="display:flex;gap:8px;align-items:center">
-                            <input type="color" name="accent_color" value="<?= e(setting('accent_color', DEFAULT_ACCENT)) ?>"
+                            <input type="color" name="accent_color" value="<?= e(normalize_hex_color(setting('accent_color', DEFAULT_ACCENT))) ?>"
                                    style="width:40px;height:40px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;padding:0">
-                            <input class="input font-mono" id="accentText" value="<?= e(setting('accent_color', DEFAULT_ACCENT)) ?>" style="width:130px" readonly>
+                            <input class="input font-mono" id="accentText" value="<?= e(normalize_hex_color(setting('accent_color', DEFAULT_ACCENT))) ?>" style="width:130px" readonly>
                         </div>
                     </div>
                     <div class="form-group"><label class="form-label">Theme</label>
                         <select class="select" name="theme">
-                            <option value="light" <?= setting('theme','light')==='light'?'selected':'' ?>>Hell</option>
-                            <option value="dark" <?= setting('theme','light')==='dark'?'selected':'' ?>>Dunkel</option>
+                            <option value="light" <?= safe_theme(setting('theme','light'))==='light'?'selected':'' ?>>Hell</option>
+                            <option value="dark" <?= safe_theme(setting('theme','light'))==='dark'?'selected':'' ?>>Dunkel</option>
                         </select>
                     </div>
                     <div class="form-group"><label class="form-label">Schrift (Display)</label>
                         <select class="select" name="font_display">
-                            <option <?= setting('font_display')==='Syne'?'selected':'' ?>>Syne</option>
-                            <option <?= setting('font_display')==='Inter'?'selected':'' ?>>Inter</option>
-                            <option <?= setting('font_display')==='Playfair Display'?'selected':'' ?>>Playfair Display</option>
+                            <option <?= safe_font_family(setting('font_display'), 'Syne')==='Syne'?'selected':'' ?>>Syne</option>
+                            <option <?= safe_font_family(setting('font_display'), 'Syne')==='Inter'?'selected':'' ?>>Inter</option>
+                            <option <?= safe_font_family(setting('font_display'), 'Syne')==='Playfair Display'?'selected':'' ?>>Playfair Display</option>
                         </select>
                     </div>
                     <div class="form-group"><label class="form-label">Schrift (Fließtext)</label>
                         <select class="select" name="font_body">
-                            <option <?= setting('font_body')==='DM Sans'?'selected':'' ?>>DM Sans</option>
-                            <option <?= setting('font_body')==='Inter'?'selected':'' ?>>Inter</option>
-                            <option <?= setting('font_body')==='Roboto'?'selected':'' ?>>Roboto</option>
+                            <option <?= safe_font_family(setting('font_body'), 'DM Sans')==='DM Sans'?'selected':'' ?>>DM Sans</option>
+                            <option <?= safe_font_family(setting('font_body'), 'DM Sans')==='Inter'?'selected':'' ?>>Inter</option>
+                            <option <?= safe_font_family(setting('font_body'), 'DM Sans')==='Roboto'?'selected':'' ?>>Roboto</option>
                         </select>
                     </div>
                 </div>

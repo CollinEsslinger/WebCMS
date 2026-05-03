@@ -6,6 +6,11 @@ $message = '';
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_check();
+    if (is_installed()) {
+        require_admin();
+    }
+
     $user = trim($_POST['admin_user'] ?? '');
     $pass = $_POST['admin_pass'] ?? '';
     $pass2 = $_POST['admin_pass2'] ?? '';
@@ -26,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $installed = is_installed();
+$canInstall = !$installed || is_admin();
 $dbError = database_connection_error();
 if ($installed) {
     $message = 'Das CMS ist bereits installiert. Eine erneute Installation löscht alle Tabellen und Daten in dieser Datenbank unwiderruflich und legt sie neu an.';
@@ -61,7 +67,9 @@ if ($installed) {
                     <div class="alert alert-danger" role="alert" style="margin-bottom:16px"><span class="alert-icon">✕</span><div><p class="alert-body"><?= e($error) ?></p></div></div>
                 <?php endif; ?>
 
+                <?php if ($canInstall): ?>
                 <form method="post" class="auth-form">
+                    <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
                     <div class="form-group">
                         <label class="form-label">Admin-Benutzername</label>
                         <input class="input" name="admin_user" value="<?= e($_POST['admin_user'] ?? 'admin') ?>" required minlength="3">
@@ -81,6 +89,11 @@ if ($installed) {
                     </label>
                     <button class="btn btn-primary btn-lg" type="submit" style="width:100%">Datenbank zurücksetzen und CMS installieren</button>
                 </form>
+                <?php else: ?>
+                    <p class="auth-note" style="margin-top:18px">
+                        <a href="<?= e(site_url('/admin/login.php')) ?>">Als Administrator anmelden</a>
+                    </p>
+                <?php endif; ?>
 
                 <p class="auth-note" style="margin-top:18px">
                     Datenbank-Treiber: <strong><?= DB_DRIVER === 'sqlite' ? 'SQLite (eingebettet)' : 'MySQL' ?></strong>

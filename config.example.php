@@ -26,7 +26,7 @@ const SITE_LANG = 'de';
 
 // ─── SECURITY ───────────────────────────────────────────────
 // Used for CSRF tokens and session salt. CHANGE THIS in production!
-const APP_SECRET = 'mysqldatabase-madebyclaude_aifor!collinesslinger-2009!';
+const APP_SECRET = 'change-this-to-a-long-random-secret';
 
 // Default admin login (only used during install)
 const DEFAULT_ADMIN_USER = 'admin';
@@ -37,8 +37,8 @@ const SESSION_LIFETIME = 28800;
 
 // ─── UPLOADS ────────────────────────────────────────────────
 const UPLOAD_DIR = __DIR__ . '/storage/uploads';
-const UPLOAD_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
-const UPLOAD_ALLOWED_EXT = ['jpg','jpeg','png','webp','gif','svg','mp4','webm','pdf'];
+const UPLOAD_MAX_BYTES = 64 * 1024 * 1024; // 64 MB
+const UPLOAD_ALLOWED_EXT = ['jpg','jpeg','png','webp','gif','mp4','webm','pdf'];
 
 // ─── DESIGN ─────────────────────────────────────────────────
 // Default accent color (can be changed in CMS settings)

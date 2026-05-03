@@ -101,17 +101,17 @@ $publishedCount = count(array_filter($pages, fn($p) => $p['status']==='published
 $draftCount = $totalCount - $publishedCount;
 ?>
 <!DOCTYPE html>
-<html lang="de" data-theme="<?= e(setting('theme','light')) ?>">
+<html lang="de" data-theme="<?= e(safe_theme(setting('theme','light'))) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title>Seitenverwaltung – WebCMS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+    <link href="<?= e(google_fonts_url()) ?>" rel="stylesheet">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/site.css')) ?>">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/admin.css')) ?>">
-    <style>:root{--accent:<?= e(setting('accent_color', DEFAULT_ACCENT)) ?>;--accent-light:color-mix(in srgb,var(--accent) 14%,transparent);--accent-dark:color-mix(in srgb,var(--accent) 75%,#000)}</style>
+    <style>:root{<?= theme_css_vars() ?>}</style>
 </head>
 <body class="admin-body">
 <?php include __DIR__ . '/_sidebar.php'; ?>

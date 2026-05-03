@@ -88,6 +88,14 @@ function render_multiline_text($text): string {
     return nl2br(e((string)($text ?? '')));
 }
 
+function render_href(?string $url): string {
+    return e(safe_url($url));
+}
+
+function render_media_src(?string $url): string {
+    return e(safe_media_url($url));
+}
+
 function render_block_hero(array $s): string {
     return '<section class="hero">
         <div class="container">
@@ -95,8 +103,8 @@ function render_block_hero(array $s): string {
             <h1>' . e($s['heading'] ?? '') . '</h1>
             <p>' . render_multiline_text($s['text'] ?? '') . '</p>
             <div class="hero-cta">
-                ' . (!empty($s['primaryLabel']) ? '<a class="btn btn-primary btn-lg" href="' . e($s['primaryUrl'] ?? '#') . '">' . e($s['primaryLabel']) . '</a>' : '') . '
-                ' . (!empty($s['secondaryLabel']) ? '<a class="btn btn-secondary btn-lg" href="' . e($s['secondaryUrl'] ?? '#') . '">' . e($s['secondaryLabel']) . '</a>' : '') . '
+                ' . (!empty($s['primaryLabel']) ? '<a class="btn btn-primary btn-lg" href="' . render_href($s['primaryUrl'] ?? '#') . '">' . e($s['primaryLabel']) . '</a>' : '') . '
+                ' . (!empty($s['secondaryLabel']) ? '<a class="btn btn-secondary btn-lg" href="' . render_href($s['secondaryUrl'] ?? '#') . '">' . e($s['secondaryLabel']) . '</a>' : '') . '
             </div>
         </div>
     </section>';
@@ -115,7 +123,7 @@ function render_block_cards(array $s): string {
     $items = $s['items'] ?? [];
     $cards = '';
     foreach ($items as $c) {
-        $btn = !empty($c['urlLabel']) ? '<div class="card-footer"><a class="btn btn-ghost btn-sm" href="' . e($c['url'] ?? '#') . '">' . e($c['urlLabel']) . ' →</a></div>' : '';
+        $btn = !empty($c['urlLabel']) ? '<div class="card-footer"><a class="btn btn-ghost btn-sm" href="' . render_href($c['url'] ?? '#') . '">' . e($c['urlLabel']) . ' →</a></div>' : '';
         $cards .= '<div class="card card-interactive">
             <div class="card-icon">' . e($c['icon'] ?? '✦') . '</div>
             <h3>' . e($c['title'] ?? '') . '</h3>
@@ -191,7 +199,7 @@ function render_block_pricing(array $s): string {
             <h3>' . e($p['name'] ?? '') . '</h3>
             <div class="pricing-price">' . e($p['price'] ?? '') . ' <span>' . e($p['period'] ?? '') . '</span></div>
             <ul class="pricing-features">' . $features . '</ul>
-            <a class="btn ' . $btnClass . '" style="width:100%" href="' . e($p['buttonUrl'] ?? '#') . '">' . e($p['buttonLabel'] ?? 'Auswählen') . '</a>
+            <a class="btn ' . $btnClass . '" style="width:100%" href="' . render_href($p['buttonUrl'] ?? '#') . '">' . e($p['buttonLabel'] ?? 'Auswählen') . '</a>
         </div>';
     }
     return '<section class="section"><div class="container">
@@ -292,13 +300,15 @@ function render_block_cta(array $s): string {
         <div class="card card-accent" style="text-align:center;padding:48px 24px">
             <h2 style="color:#fff;margin-bottom:12px">' . e($s['heading'] ?? '') . '</h2>
             <p style="color:rgba(255,255,255,.85);margin-bottom:20px;max-width:540px;margin-left:auto;margin-right:auto">' . render_multiline_text($s['text'] ?? '') . '</p>
-            <a class="btn btn-lg" style="background:#fff;color:var(--accent);border-color:#fff" href="' . e($s['buttonUrl'] ?? '#') . '">' . e($s['buttonLabel'] ?? '') . '</a>
+            <a class="btn btn-lg" style="background:#fff;color:var(--accent);border-color:#fff" href="' . render_href($s['buttonUrl'] ?? '#') . '">' . e($s['buttonLabel'] ?? '') . '</a>
         </div>
     </div></section>';
 }
 
 function render_block_image(array $s): string {
     if (empty($s['url'])) return '';
+    $src = render_media_src($s['url']);
+    if ($src === '') return '';
     $w = $s['width'] ?? 'full';
     $maxW = $w === 'narrow' ? '560px' : ($w === 'medium' ? '840px' : '100%');
     $caption = !empty($s['captionTitle']) || !empty($s['captionText'])
@@ -306,7 +316,7 @@ function render_block_image(array $s): string {
         : '';
     return '<section class="section"><div class="container">
         <div class="img-card" style="max-width:' . $maxW . ';margin:0 auto">
-            <img src="' . e($s['url']) . '" alt="' . e($s['alt'] ?? '') . '">
+            <img src="' . $src . '" alt="' . e($s['alt'] ?? '') . '" loading="lazy" decoding="async">
             ' . $caption . '
         </div>
     </div></section>';
@@ -315,9 +325,14 @@ function render_block_image(array $s): string {
 function render_block_gallery(array $s): string {
     $items = $s['items'] ?? [];
     $imgs = '';
+    $galleryId = 'gallery-' . substr(md5(json_encode($items)), 0, 10);
+    $index = 0;
     foreach ($items as $g) {
         if (empty($g['url'])) continue;
-        $imgs .= '<div class="img-card"><img src="' . e($g['url']) . '" alt="' . e($g['alt'] ?? '') . '" style="aspect-ratio:1;object-fit:cover"></div>';
+        $src = render_media_src($g['url']);
+        if ($src === '') continue;
+        $imgs .= '<button type="button" class="img-card gallery-lightbox-item" data-lightbox-gallery="' . e($galleryId) . '" data-lightbox-index="' . $index . '"><img src="' . $src . '" alt="' . e($g['alt'] ?? '') . '" loading="lazy" decoding="async" style="aspect-ratio:1;object-fit:cover"></button>';
+        $index++;
     }
     return '<section class="section"><div class="container">
         ' . (!empty($s['label']) ? '<span class="section-label">' . e($s['label']) . '</span>' : '') . '
@@ -326,15 +341,36 @@ function render_block_gallery(array $s): string {
     </div></section>';
 }
 
+function render_block_carousel(array $s): string {
+    $items = array_values(array_filter($s['items'] ?? [], static fn($g) => !empty($g['url'])));
+    if (empty($items)) return '';
+    $galleryId = 'carousel-' . substr(md5(json_encode($items)), 0, 10);
+    $speed = in_array((string)($s['speed'] ?? '35'), ['20', '35', '55'], true) ? (string)$s['speed'] : '35';
+    $slides = '';
+    foreach (array_merge($items, $items) as $i => $g) {
+        $src = render_media_src($g['url'] ?? '');
+        if ($src === '') continue;
+        $realIndex = $i % count($items);
+        $slides .= '<button type="button" class="carousel-image gallery-lightbox-item" data-lightbox-gallery="' . e($galleryId) . '" data-lightbox-index="' . $realIndex . '"><img src="' . $src . '" alt="' . e($g['alt'] ?? '') . '" loading="lazy" decoding="async"></button>';
+    }
+    return '<section class="section carousel-section"><div class="container">
+        ' . (!empty($s['label']) ? '<span class="section-label">' . e($s['label']) . '</span>' : '') . '
+        ' . (!empty($s['heading']) ? '<h2>' . e($s['heading']) . '</h2>' : '') . '
+    </div><div class="image-carousel" style="--carousel-speed:' . e($speed) . 's"><div class="image-carousel-track">' . $slides . '</div></div></section>';
+}
+
 function render_block_video(array $s): string {
     if (empty($s['url'])) return '';
-    $poster = !empty($s['poster']) ? ' poster="' . e($s['poster']) . '"' : '';
+    $src = render_media_src($s['url']);
+    if ($src === '') return '';
+    $posterSrc = !empty($s['poster']) ? render_media_src($s['poster']) : '';
+    $poster = $posterSrc !== '' ? ' poster="' . $posterSrc . '"' : '';
     $caption = !empty($s['captionTitle']) || !empty($s['captionText'])
         ? '<p style="text-align:center;margin-top:12px;font-size:.85rem;color:var(--text-muted)"><strong>' . e($s['captionTitle'] ?? '') . '</strong> ' . e($s['captionText'] ?? '') . '</p>'
         : '';
     return '<section class="section"><div class="container">
         <div class="video-wrap" style="max-width:840px;margin:0 auto">
-            <video controls' . $poster . '><source src="' . e($s['url']) . '"></video>
+            <video controls playsinline preload="metadata"' . $poster . '><source src="' . $src . '"></video>
         </div>
         ' . $caption . '
     </div></section>';
@@ -402,8 +438,9 @@ function render_page_html(array $page): string {
     $bodyHtml = render_blocks($blocks);
     $title = e($page['title']) . ' – ' . e(setting('site_name', SITE_NAME));
     $meta  = e($page['meta_description'] ?? setting('meta_default', ''));
-    $accent = e(setting('accent_color', DEFAULT_ACCENT));
-    $theme  = e(setting('theme', 'light'));
+    $theme  = e(safe_theme(setting('theme', 'light')));
+    $fontUrl = e(google_fonts_url());
+    $themeVars = theme_css_vars();
     $nav    = render_navigation((int)$page['id']);
     $footer = render_footer();
 
@@ -415,10 +452,10 @@ function render_page_html(array $page): string {
     <meta name="description" content="' . $meta . '">
     <title>' . $title . '</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+    <link href="' . $fontUrl . '" rel="stylesheet">
     <link rel="stylesheet" href="' . e(site_url('/assets/css/site.css')) . '">
     <script src="' . e(site_url('/assets/js/theme.js')) . '" defer></script>
-    <style>:root{--accent:' . $accent . ';--accent-light:color-mix(in srgb,var(--accent) 14%,transparent);--accent-dark:color-mix(in srgb,var(--accent) 75%,#000)}</style>
+    <style>:root{' . $themeVars . '}</style>
 </head>
 <body>
 ' . $nav . '<main class="site-main">' . $bodyHtml . '</main>' . $footer . '

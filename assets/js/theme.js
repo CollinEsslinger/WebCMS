@@ -91,7 +91,7 @@
     });
 
     document.querySelectorAll('.navbar').forEach((navbar) => {
-      const mobileNav = window.matchMedia('(max-width: 768px), (hover: none) and (pointer: coarse)');
+      const mobileNav = window.matchMedia('(max-width: 768px), (any-pointer: coarse)');
 
       function setSubmenuOpen(item, isOpen) {
         item.classList.toggle('submenu-open', isOpen);
@@ -157,6 +157,77 @@
         item.classList.toggle('open', willOpen);
         button.setAttribute('aria-expanded', String(willOpen));
       });
+    });
+
+    const groups = new Map();
+    document.querySelectorAll('[data-lightbox-gallery]').forEach((item) => {
+      const key = item.dataset.lightboxGallery || 'default';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    });
+
+    let activeGroup = [];
+    let activeIndex = 0;
+    let touchStartX = 0;
+
+    function attr(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function openLightbox(group, index) {
+      activeGroup = group;
+      activeIndex = (index + group.length) % group.length;
+      const trigger = group[activeIndex];
+      const media = trigger.querySelector('img, video');
+      if (!media) return;
+
+      let overlay = document.querySelector('.media-lightbox');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'media-lightbox';
+        overlay.innerHTML = `
+          <button type="button" class="media-lightbox-btn media-lightbox-close" data-lightbox-close>×</button>
+          <button type="button" class="media-lightbox-btn media-lightbox-prev" data-lightbox-prev>‹</button>
+          <div class="media-lightbox-stage" data-lightbox-stage></div>
+          <button type="button" class="media-lightbox-btn media-lightbox-next" data-lightbox-next>›</button>`;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (event) => {
+          if (event.target === overlay || event.target.closest('[data-lightbox-close]')) overlay.remove();
+          if (event.target.closest('[data-lightbox-prev]')) openLightbox(activeGroup, activeIndex - 1);
+          if (event.target.closest('[data-lightbox-next]')) openLightbox(activeGroup, activeIndex + 1);
+        });
+        overlay.addEventListener('touchstart', (event) => {
+          touchStartX = event.touches[0]?.clientX || 0;
+        }, { passive: true });
+        overlay.addEventListener('touchend', (event) => {
+          const delta = (event.changedTouches[0]?.clientX || 0) - touchStartX;
+          if (Math.abs(delta) > 45) openLightbox(activeGroup, activeIndex + (delta < 0 ? 1 : -1));
+        }, { passive: true });
+      }
+
+      const stage = overlay.querySelector('[data-lightbox-stage]');
+      const src = media.currentSrc || media.src;
+      const alt = media.getAttribute('alt') || '';
+      stage.innerHTML = media.tagName.toLowerCase() === 'video'
+        ? `<video src="${attr(src)}" controls autoplay playsinline></video>`
+        : `<img src="${attr(src)}" alt="${attr(alt)}">`;
+    }
+
+    groups.forEach((group) => {
+      group.forEach((item, index) => {
+        item.addEventListener('click', () => openLightbox(group, index));
+      });
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (!document.querySelector('.media-lightbox')) return;
+      if (event.key === 'Escape') document.querySelector('.media-lightbox')?.remove();
+      if (event.key === 'ArrowLeft') openLightbox(activeGroup, activeIndex - 1);
+      if (event.key === 'ArrowRight') openLightbox(activeGroup, activeIndex + 1);
     });
   });
 })();

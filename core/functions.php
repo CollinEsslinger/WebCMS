@@ -25,6 +25,81 @@ function site_url(string $path = ''): string {
     return $scheme . '://' . $host . $base . $path;
 }
 
+function safe_url(?string $url, string $fallback = '#'): string {
+    $url = trim((string)$url);
+    if ($url === '') return $fallback;
+    if (str_starts_with($url, '//')) return $fallback;
+    if (str_starts_with($url, '/') || str_starts_with($url, '#')) return $url;
+
+    $parts = parse_url($url);
+    if ($parts === false) return $fallback;
+
+    $scheme = strtolower((string)($parts['scheme'] ?? ''));
+    return in_array($scheme, ['http', 'https', 'mailto', 'tel'], true) ? $url : $fallback;
+}
+
+function safe_media_url(?string $url): string {
+    $url = safe_url($url, '');
+    if ($url === '') return '';
+    if (str_starts_with($url, '#')) return '';
+
+    $parts = parse_url($url);
+    if ($parts === false) return '';
+
+    $scheme = strtolower((string)($parts['scheme'] ?? ''));
+    return in_array($scheme, ['mailto', 'tel'], true) ? '' : $url;
+}
+
+function normalize_hex_color(?string $color, string $fallback = DEFAULT_ACCENT): string {
+    $color = trim((string)$color);
+    return preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? strtolower($color) : $fallback;
+}
+
+function safe_font_family(?string $font, string $fallback): string {
+    $allowed = ['Syne', 'DM Sans', 'Inter', 'Playfair Display', 'Roboto'];
+    $font = trim((string)$font);
+    return in_array($font, $allowed, true) ? $font : $fallback;
+}
+
+function font_css_value(string $font): string {
+    return "'" . str_replace("'", "\\'", $font) . "', sans-serif";
+}
+
+function google_fonts_url(?string $displayFont = null, ?string $bodyFont = null): string {
+    $displayFont = safe_font_family($displayFont ?? setting('font_display', 'Syne'), 'Syne');
+    $bodyFont = safe_font_family($bodyFont ?? setting('font_body', 'DM Sans'), 'DM Sans');
+    $families = [
+        'Syne' => 'Syne:wght@400;600;700;800',
+        'DM Sans' => 'DM+Sans:ital,wght@0,300;0,400;0,500;1,300',
+        'Inter' => 'Inter:wght@300;400;500;600;700;800',
+        'Playfair Display' => 'Playfair+Display:wght@400;600;700;800',
+        'Roboto' => 'Roboto:wght@300;400;500;700',
+    ];
+
+    $requested = array_values(array_unique([$displayFont, $bodyFont]));
+    $query = [];
+    foreach ($requested as $font) {
+        $query[] = 'family=' . $families[$font];
+    }
+
+    return 'https://fonts.googleapis.com/css2?' . implode('&', $query) . '&display=swap';
+}
+
+function theme_css_vars(): string {
+    $accent = normalize_hex_color(setting('accent_color', DEFAULT_ACCENT));
+    $fontDisplay = font_css_value(safe_font_family(setting('font_display', 'Syne'), 'Syne'));
+    $fontBody = font_css_value(safe_font_family(setting('font_body', 'DM Sans'), 'DM Sans'));
+    return '--accent:' . $accent
+        . ';--accent-light:color-mix(in srgb,var(--accent) 14%,transparent)'
+        . ';--accent-dark:color-mix(in srgb,var(--accent) 75%,#000)'
+        . ';--font-display:' . $fontDisplay
+        . ';--font-body:' . $fontBody;
+}
+
+function safe_theme(?string $theme): string {
+    return $theme === 'dark' ? 'dark' : 'light';
+}
+
 function redirect(string $path): void {
     header('Location: ' . site_url($path));
     exit;
@@ -336,6 +411,13 @@ function save_page(array $data, ?int $id = null): int {
     // Validate JSON
     $decoded = json_decode($blocksJson, true);
     if (!is_array($decoded)) $decoded = [];
+    if (!is_admin()) {
+        foreach ($decoded as $block) {
+            if (($block['type'] ?? '') === 'html') {
+                throw new RuntimeException('Custom-HTML-Blöcke dürfen nur von Administratoren gespeichert werden.');
+            }
+        }
+    }
     $blocksJson = json_encode($decoded, JSON_UNESCAPED_UNICODE);
 
     // If this page is set as home, unset others
@@ -542,10 +624,33 @@ function format_bytes(int $bytes): string {
     return number_format($val, $i === 0 ? 0 : 1, ',', '.') . ' ' . $units[$i];
 }
 
+function ini_size_to_bytes(string $value): int {
+    $value = trim($value);
+    if ($value === '') return 0;
+
+    $unit = strtolower(substr($value, -1));
+    $number = (float)$value;
+    return match ($unit) {
+        'g' => (int)($number * 1024 * 1024 * 1024),
+        'm' => (int)($number * 1024 * 1024),
+        'k' => (int)($number * 1024),
+        default => (int)$number,
+    };
+}
+
+function effective_upload_max_bytes(): int {
+    $limits = [UPLOAD_MAX_BYTES];
+    $uploadMax = ini_size_to_bytes((string)ini_get('upload_max_filesize'));
+    $postMax = ini_size_to_bytes((string)ini_get('post_max_size'));
+    if ($uploadMax > 0) $limits[] = $uploadMax;
+    if ($postMax > 0) $limits[] = $postMax;
+    return min($limits);
+}
+
 // ─── BLOCK DEFINITIONS ──────────────────────────────────────
 
 function block_types(): array {
-    return [
+    $types = [
         'hero'         => ['label' => 'Hero',         'icon' => '🦸', 'desc' => 'Großer Einstiegsbereich'],
         'text'         => ['label' => 'Text',         'icon' => '📝', 'desc' => 'Textabsatz mit Überschrift'],
         'cards'        => ['label' => 'Karten',       'icon' => '🃏', 'desc' => 'Karten-Grid (2–6 Karten)'],
@@ -567,6 +672,11 @@ function block_types(): array {
         'spacer'       => ['label' => 'Abstand',      'icon' => '↕',  'desc' => 'Vertikaler Leerraum'],
         'html'         => ['label' => 'Custom HTML',  'icon' => '⚡', 'desc' => 'Beliebiges HTML'],
     ];
+    $types['carousel'] = ['label' => 'Karussell', 'icon' => 'K', 'desc' => 'Laufende Bilderzeile'];
+    if (!is_admin()) {
+        unset($types['html']);
+    }
+    return $types;
 }
 
 function block_default_settings(string $type): array {
@@ -620,6 +730,12 @@ function block_default_settings(string $type): array {
             ['url'=>'','alt'=>'Bild 1'],
             ['url'=>'','alt'=>'Bild 2'],
             ['url'=>'','alt'=>'Bild 3'],
+        ]],
+        'carousel' => ['label'=>'Karussell','heading'=>'Einblicke','speed'=>'35','items'=>[
+            ['url'=>'','alt'=>'Bild 1'],
+            ['url'=>'','alt'=>'Bild 2'],
+            ['url'=>'','alt'=>'Bild 3'],
+            ['url'=>'','alt'=>'Bild 4'],
         ]],
         'video' => ['url'=>'','poster'=>'','captionTitle'=>'Video','captionText'=>''],
         'form' => ['label'=>'Kontakt','heading'=>'Schreiben Sie uns','fields'=>[
