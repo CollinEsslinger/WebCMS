@@ -9,6 +9,6 @@ try {
     if (!$id) throw new RuntimeException('Ungültige ID.');
     delete_page($id);
 } catch (Throwable $e) {
-    if (DEBUG) throw $e;
+    $_SESSION['flash_error'] = $e->getMessage();
 }
 redirect('/admin/');

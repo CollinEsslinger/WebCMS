@@ -1,10 +1,12 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../config.php';
+// The test router defines an isolated configuration before loading bootstrap.
+require_once defined('WEBCMS_TEST_CONFIG') && PHP_SAPI === 'cli-server' ? WEBCMS_TEST_CONFIG : __DIR__ . '/../config.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/cms.php';
 
 if (DEBUG) {
     error_reporting(E_ALL);
@@ -44,4 +46,8 @@ if (!is_installed()) {
         header('Location: ' . site_url('/install.php'));
         exit;
     }
+} else {
+    cms_migrate();
+    $timezone = (string)setting('timezone', 'Europe/Berlin');
+    if (in_array($timezone, timezone_identifiers_list(), true)) date_default_timezone_set($timezone);
 }

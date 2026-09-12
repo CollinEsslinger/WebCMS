@@ -8,7 +8,7 @@ try {
     $username = trim($_POST['username'] ?? '');
     $email    = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
-    $role     = in_array($_POST['role'] ?? 'editor', ['admin','editor'], true) ? $_POST['role'] : 'editor';
+    $role     = in_array($_POST['role'] ?? 'editor', ['admin','editor','publisher','author','viewer'], true) ? $_POST['role'] : 'editor';
 
     if (strlen($username) < 3) throw new RuntimeException('Benutzername zu kurz.');
     if (strlen($password) < 6) throw new RuntimeException('Passwort zu kurz.');

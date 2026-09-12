@@ -12,8 +12,10 @@ try {
     if (!$id || !in_array($status, ['draft','published'], true)) {
         throw new RuntimeException('Ungültige Parameter.');
     }
-    db()->prepare('UPDATE pages SET status = ?, updated_at = ? WHERE id = ?')
-        ->execute([$status, date('Y-m-d H:i:s'), $id]);
+    $page = cms_assert_page($id);
+    $page['status'] = $status === 'draft' ? 'archived' : 'published';
+    $page['slug_part'] = basename($page['slug']);
+    cms_save_page($page, $id, 'Status geändert');
     json_response(['ok' => true]);
 } catch (Throwable $e) {
     json_response(['ok' => false, 'message' => $e->getMessage()], 400);

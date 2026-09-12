@@ -499,13 +499,14 @@ code, kbd, pre { font-family: 'Menlo','Consolas',monospace; font-size: .875em; }
 .hero::before {
     content: '';
     position: absolute;
-    top: -30%;
-    right: -10%;
-    width: 60vw;
-    max-width: 700px;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
     aspect-ratio: 1;
     background: radial-gradient(circle, var(--accent-light) 0%, transparent 70%);
     pointer-events: none;
+    transform: translateX(50%);
 }
 .hero-tag {
     display: inline-flex;

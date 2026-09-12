@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/public.php';
 /**
  * Render saved blocks as HTML for the public site.
  */
@@ -14,6 +15,7 @@ function render_blocks(array $blocks): string {
 function render_block(array $block): string {
     $type = $block['type'] ?? '';
     $s    = $block['settings'] ?? [];
+    $s['_block_id'] = (string)($block['id'] ?? '');
     $fn   = "render_block_$type";
     if (function_exists($fn)) {
         return $fn($s);
@@ -377,25 +379,12 @@ function render_block_video(array $s): string {
 }
 
 function render_block_form(array $s): string {
-    $fields = '';
-    foreach (($s['fields'] ?? []) as $i => $f) {
-        $name = 'field_' . $i;
-        $req  = !empty($f['required']) ? 'required' : '';
-        $lbl  = '<label class="form-label">' . e($f['label'] ?? '') . (!empty($f['required']) ? ' *' : '') . '</label>';
-        if (($f['type'] ?? 'text') === 'textarea') {
-            $fields .= '<div class="form-group">' . $lbl . '<textarea class="textarea" name="' . $name . '" placeholder="' . e($f['placeholder'] ?? '') . '" rows="4" ' . $req . '></textarea></div>';
-        } else {
-            $fields .= '<div class="form-group">' . $lbl . '<input class="input" type="' . e($f['type'] ?? 'text') . '" name="' . $name . '" placeholder="' . e($f['placeholder'] ?? '') . '" ' . $req . '></div>';
-        }
-    }
-    return '<section class="section"><div class="container">
-        ' . (!empty($s['label']) ? '<span class="section-label">' . e($s['label']) . '</span>' : '') . '
-        <h2>' . e($s['heading'] ?? '') . '</h2>
-        <form style="max-width:520px;margin-top:24px;display:flex;flex-direction:column;gap:14px" onsubmit="event.preventDefault();alert(\'Formular abgeschickt (Demo)\')">
-            ' . $fields . '
-            <button class="btn btn-primary" type="submit" style="align-self:flex-start">' . e($s['buttonLabel'] ?? 'Absenden') . '</button>
-        </form>
-    </div></section>';
+    $page = $GLOBALS['cms_render_page'] ?? [];
+    $fields = $s['fields'] ?? [];
+    if (!$fields) return '';
+    return '<section class="section"><div class="container"><h2>' . e($s['heading'] ?? 'Kontakt') . '</h2>'
+        . cms_form_html($fields, ['action'=>'block_form', 'page_id'=>$page['id'] ?? 0, 'block_id'=>$s['_block_id'] ?? ''], $s['buttonLabel'] ?? 'Absenden')
+        . '</div></section>';
 }
 
 function render_block_code(array $s): string {
@@ -434,38 +423,51 @@ function render_block_html(array $s): string {
 // ─── PAGE TEMPLATE WITH NAV ─────────────────────────────────
 
 function render_page_html(array $page): string {
+    $GLOBALS['cms_render_page'] = $page;
     $blocks = json_decode($page['blocks_json'] ?? '[]', true) ?: [];
     $bodyHtml = render_blocks($blocks);
-    $title = e($page['title']) . ' – ' . e(setting('site_name', SITE_NAME));
+    $title = e(($page['seo_title'] ?? '') ?: $page['title']) . ' – ' . e(setting('site_name', SITE_NAME));
     $meta  = e($page['meta_description'] ?? setting('meta_default', ''));
     $theme  = e(safe_theme(setting('theme', 'light')));
     $fontUrl = e(google_fonts_url());
     $themeVars = theme_css_vars();
     $nav    = render_navigation((int)$page['id']);
     $footer = render_footer();
+    $seo = '<link rel="canonical" href="' . e(page_url($page)) . '"><meta property="og:title" content="' . $title . '"><meta property="og:description" content="' . $meta . '">';
+    if (!empty($page['og_image'])) $seo .= '<meta property="og:image" content="' . e(safe_media_url($page['og_image'])) . '">';
+    if (!empty($page['noindex']) || ($page['access_role'] ?? '') === 'members') $seo .= '<meta name="robots" content="noindex,nofollow">';
+    $languages = '';
+    $translationRoot = (int)(($page['translation_of'] ?? null) ?: $page['id']);
+    foreach (cms_public_pages() as $translation) {
+        if ((int)($translation['translation_of'] ?: $translation['id']) !== $translationRoot) continue;
+        $seo .= '<link rel="alternate" hreflang="' . e($translation['language']) . '" href="' . e(page_url($translation)) . '">';
+        $languages .= '<a lang="' . e($translation['language']) . '" href="' . e(page_url($translation)) . '">' . e(strtoupper($translation['language'])) . '</a>';
+    }
 
     return '<!DOCTYPE html>
-<html lang="' . SITE_LANG . '" data-theme="' . $theme . '">
+<html lang="' . e($page['language'] ?? SITE_LANG) . '" data-theme="' . $theme . '">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="' . $meta . '">
     <title>' . $title . '</title>
+    ' . $seo . '
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="' . $fontUrl . '" rel="stylesheet">
     <link rel="stylesheet" href="' . e(site_url('/assets/css/site.css')) . '">
+    <link rel="stylesheet" href="' . e(site_url('/assets/css/modules.css')) . '">
     <script src="' . e(site_url('/assets/js/theme.js')) . '" defer></script>
     <style>:root{' . $themeVars . '}</style>
 </head>
 <body>
-' . $nav . '<main class="site-main">' . $bodyHtml . '</main>' . $footer . '
+<a class="skip-link" href="#main-content">Zum Inhalt springen</a>
+' . $nav . '<main class="site-main" id="main-content"><div class="container language-links">' . $languages . '</div>' . $bodyHtml . '</main>' . $footer . '
 </body>
 </html>';
 }
 
 function render_navigation(?int $currentPageId = null): string {
-    $stmt = db()->query("SELECT id, title, slug, is_home, parent_id FROM pages WHERE status = 'published' ORDER BY sort_order ASC, id ASC");
-    $pages = $stmt->fetchAll();
+    $pages = array_values(array_filter(cms_public_pages(), fn($p) => empty($p['nav_hidden'])));
     $publishedIds = [];
     foreach ($pages as $p) {
         $publishedIds[(int)$p['id']] = true;
@@ -500,6 +502,7 @@ function render_navigation(?int $currentPageId = null): string {
             <a href="' . e(site_url('/')) . '" class="navbar-logo">' . $logo . '<span>' . $logoAccent . '</span>' . $logoAfter . '</a>
             <ul class="navbar-nav" id="site-navigation" role="list">' . $links . '</ul>
             <div class="navbar-actions">
+                <a href="' . e(site_url('/search.php')) . '" aria-label="Website durchsuchen">⌕</a>
                 <button class="theme-toggle-btn site-theme-toggle" type="button" data-theme-toggle aria-pressed="false">
                     <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
                     <span class="theme-icon theme-icon-moon" aria-hidden="true">☾</span>

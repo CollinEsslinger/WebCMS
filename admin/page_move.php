@@ -15,7 +15,12 @@ try {
         throw new RuntimeException('Ungültige Parameter.');
     }
 
+    cms_require('publish');
+    cms_assert_page($movedId);
+    cms_assert_page($targetId);
     move_page($movedId, $targetId, $mode);
+    db()->exec('UPDATE pages SET version=version+1');
+    cms_audit('page.move','page',$movedId,'Seite verschoben');
     json_response(['ok' => true]);
 } catch (Throwable $e) {
     json_response(['ok' => false, 'message' => $e->getMessage()], 400);

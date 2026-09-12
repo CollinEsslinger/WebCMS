@@ -16,10 +16,9 @@ unset($_SESSION['flash'], $_SESSION['flash_error']);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Benutzer – WebCMS</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="<?= e(google_fonts_url()) ?>" rel="stylesheet">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/site.css')) ?>">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/admin.css')) ?>">
+    <link rel="stylesheet" href="<?= e(site_url('/assets/css/workspace.css')) ?>">
     <style>:root{<?= theme_css_vars() ?>}</style>
 </head>
 <body class="admin-body">
@@ -58,6 +57,9 @@ unset($_SESSION['flash'], $_SESSION['flash_error']);
                         <select class="select" name="role">
                             <option value="editor">Redakteur</option>
                             <option value="admin">Administrator</option>
+                            <option value="publisher">Freigabe</option>
+                            <option value="author">Autor/in (ohne Freigabe)</option>
+                            <option value="viewer">Mitglied (nur Website)</option>
                         </select>
                     </div>
                     <button class="btn btn-primary" type="submit">+ Benutzer anlegen</button>
@@ -119,10 +121,11 @@ unset($_SESSION['flash'], $_SESSION['flash_error']);
                                 </div>
                             </td>
                             <td style="font-size:.82rem;color:var(--text-muted)"><?= e($u['email'] ?? '—') ?></td>
-                            <td><span class="badge <?= $u['role']==='admin' ? 'badge-accent' : 'badge-neutral' ?>"><?= $u['role']==='admin' ? 'Administrator' : 'Redakteur' ?></span></td>
+                            <td><span class="badge <?= $u['role']==='admin' ? 'badge-accent' : 'badge-neutral' ?>"><?= e(['admin'=>'Administrator','editor'=>'Redakteur','publisher'=>'Freigabe','author'=>'Autor/in','viewer'=>'Mitglied'][$u['role']] ?? $u['role']) ?></span></td>
                             <td style="font-size:.78rem;color:var(--text-subtle)"><?= e($u['last_login'] ? date('d.m.Y H:i', strtotime($u['last_login'])) : 'nie') ?></td>
                             <td>
                                 <div class="action-row">
+                                    <a class="btn btn-secondary btn-sm" href="<?= e(site_url('/admin/permissions.php?id='.$u['id'])) ?>">Rechte</a>
                                     <?php if (!$isCurrent): ?>
                                         <form method="post" action="<?= e(site_url('/admin/user_delete.php')) ?>" data-confirm="Benutzer wirklich löschen?" data-confirm-title="Benutzer löschen" style="display:inline">
                                             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">

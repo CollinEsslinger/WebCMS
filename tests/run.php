@@ -1,0 +1,52 @@
+<?php
+require __DIR__.'/bootstrap.php';
+$checks=0;
+function check(bool $test,string $message): void { global $checks; $checks++; if (!$test) throw new RuntimeException('FAIL: '.$message); }
+function rejects(callable $fn,string $message): void { try { $fn(); } catch (Throwable $e) { check(true,$message); return; } check(false,$message); }
+function page_data(array $page,array $extra=[]): array { $page['slug_part']=basename($page['slug']); return array_merge($page,$extra); }
+check(count(fetch_pages())===1,'migration retains home page'); cms_migrate(); check(count(fetch_pages())===1,'migration is idempotent');
+$count=(int)db()->query('SELECT COUNT(*) FROM users')->fetchColumn(); check($count===1,'migration retains users');
+$id=cms_save_page(['title'=>'Testseite','slug'=>'test','status'=>'published','blocks_json'=>cms_json([['id'=>'t','type'=>'text','settings'=>['heading'=>'Original','text'=>'Suchbegriff']]])]);
+$original=fetch_page_by_id($id); check(cms_public_page($original)['title']==='Testseite','published page visible');
+cms_save_page(page_data($original,['title'=>'Unveröffentlichter Entwurf','status'=>'draft']),$id);
+$draft=fetch_page_by_id($id); check(cms_public_page($draft)['title']==='Testseite','draft retains approved public snapshot');
+check(count(cms_rows('SELECT id FROM page_revisions WHERE page_id=?',[$id]))===1,'previous version recorded');
+rejects(fn()=>cms_save_page(page_data($original,['title'=>'Stale']),$id),'stale save rejected'); check(fetch_page_by_id($id)['title']==='Unveröffentlichter Entwurf','stale save cannot overwrite');
+cms_save_page(page_data($draft,['status'=>'published','publish_at'=>'2099-01-01T10:00']),$id); check(cms_public_page(fetch_page_by_id($id))['title']==='Testseite','future publication retains current live version');
+$scheduled=fetch_page_by_id($id); cms_save_page(page_data($scheduled,['status'=>'published','publish_at'=>'2020-01-01T10:00']),$id);
+check(cms_public_page(fetch_page_by_id($id))['title']==='Unveröffentlichter Entwurf','due publication becomes public');
+$live=fetch_page_by_id($id); cms_save_page(page_data($live,['title'=>'Nächster Entwurf','status'=>'draft']),$id);
+check(cms_public_page(fetch_page_by_id($id))['title']==='Unveröffentlichter Entwurf','scheduled live content survives subsequent draft');
+$future=cms_save_page(['title'=>'Future only','status'=>'published','publish_at'=>'2099-01-01T10:00','blocks_json'=>'[]']); check(cms_public_page(fetch_page_by_id($future))===null,'new future page stays hidden');
+$expired=cms_save_page(['title'=>'Expired','status'=>'published','unpublish_at'=>'2020-01-01T10:00','blocks_json'=>'[]']); check(cms_public_page(fetch_page_by_id($expired))===null,'expired page hidden');
+$private=cms_save_page(['title'=>'Private','status'=>'published','access_role'=>'members','blocks_json'=>'[]']); check(cms_public_page(fetch_page_by_id($private),true)===null,'private page excluded from anonymous output'); check(cms_public_page(fetch_page_by_id($private))!==null,'member sees private page');
+rejects(fn()=>cms_save_page(['title'=>'Bad date','publish_at'=>'2026-02-30T10:00','blocks_json'=>'[]']),'impossible dates rejected');
+rejects(fn()=>cms_save_page(['title'=>'Bad window','publish_at'=>'2026-09-12T10:00','unpublish_at'=>'2026-09-11T10:00','blocks_json'=>'[]']),'reverse schedule rejected');
+rejects(fn()=>cms_save_page(['title'=>'Bad JSON','blocks_json'=>'{oops']),'malformed blocks rejected');
+rejects(fn()=>cms_save_page(['title'=>'Bad block','blocks_json'=>'[{"type":"arbitrary","settings":{}}]']),'unknown block rejected');
+$child=cms_save_page(['title'=>'Child','parent_id'=>$id,'blocks_json'=>'[]']);
+rejects(fn()=>cms_save_page(page_data(fetch_page_by_id($id),['parent_id'=>$child]),$id),'tree cycle prevented');
+cms_trash_page($id); check(fetch_page_by_id($id)['deleted_at']!==null,'page moved to trash'); check(fetch_page_by_id($child)['deleted_at']!==null,'children moved to trash'); check(cms_public_page(fetch_page_by_id($id))===null,'trashed page not public');
+rejects(fn()=>cms_trash_page(1),'home cannot be deleted');
+$formFields=[['label'=>'E-Mail','type'=>'email','required'=>true],['label'=>'Zustimmung','type'=>'checkbox','required'=>true],['label'=>'Auswahl','type'=>'select','options'=>'A|B']];
+$valid=cms_validate_submission($formFields,['field_0'=>'test@example.com','field_1'=>'1','field_2'=>'B']); check($valid[1]['value']==='Ja','typed form validation succeeds');
+rejects(fn()=>cms_validate_submission($formFields,['field_0'=>'oops','field_1'=>'1']),'invalid email rejected');
+rejects(fn()=>cms_validate_submission($formFields,['field_0'=>'test@example.com']),'required consent enforced');
+rejects(fn()=>cms_validate_submission($formFields,['field_0'=>'test@example.com','field_1'=>'1','field_2'=>'C']),'forged selection rejected');
+rejects(fn()=>cms_validate_submission($formFields,['field_0'=>['injected']]),'array input rejected');
+check(cms_csv_cell('=1+2')==="'=1+2",'CSV formula injection neutralized'); check(cms_csv_cell('Normal')==='Normal','normal CSV value retained');
+$event=cms_save_entry(['kind'=>'event','title'=>'Test Termin','status'=>'published','starts_at'=>'2026-10-10T10:00','ends_at'=>'2026-10-10T11:00','location'=>'Ort, mit Komma']);
+check(count(cms_entries('event',true))===1,'future event is publicly listed');
+$ics=cms_ics_export(cms_entries('event',true)); check(str_contains($ics,'DTSTART:20261010T080000Z'),'calendar exports correct timezone');
+$parsed=cms_parse_ics($ics); check($parsed[0]['title']==='Test Termin','calendar round trip title'); check($parsed[0]['location']==='Ort, mit Komma','calendar escaping round trip'); check($parsed[0]['starts_at']==='2026-10-10 10:00:00','calendar timezone round trip');
+rejects(fn()=>cms_parse_ics(str_replace('SUMMARY:','RRULE:FREQ=DAILY'."\r\n".'SUMMARY:',$ics)),'unsupported recurrence rejected');
+$poll=cms_save_entry(['kind'=>'poll','title'=>'Abstimmung','options'=>"Ja\nNein",'status'=>'published']);
+db()->prepare('INSERT INTO poll_votes (entry_id,option_key,voter_hash,created_at) VALUES (?,?,?,?)')->execute([$poll,0,'test',cms_now()]);
+rejects(fn()=>cms_save_entry(['kind'=>'poll','title'=>'Abstimmung','options'=>"Anders\nNein"],$poll),'voted poll options cannot change');
+$entry=cms_row('SELECT * FROM content_entries WHERE id=?',[$event]); check(!str_contains(cms_entry_cards([$entry]),'<script>'),'entry rendering escapes content');
+check(str_contains(render_block_collection(['kind'=>'event','heading'=>'Kalender']), 'Test Termin'),'dynamic collection rendered');
+$self=cms_save_page(['title'=>'Loop','status'=>'published','blocks_json'=>'[]']); $selfPage=fetch_page_by_id($self); $selfPage['blocks_json']=cms_json([['id'=>'ref','type'=>'shared','settings'=>['page_id'=>$self]]]); cms_save_page(page_data($selfPage),$self);
+check(strlen(render_block_shared(['page_id'=>$self]))<100,'recursive references bounded');
+check(str_contains(render_page_html(fetch_page_by_id(1)),'rel="canonical"'),'SEO canonical rendered');
+check(str_contains(render_page_html(fetch_page_by_id(1)),'hreflang="de"'),'language metadata rendered');
+echo "PASS: $checks integration assertions (SQLite in memory).\n";

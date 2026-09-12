@@ -2,8 +2,9 @@
 declare(strict_types=1);
 require __DIR__ . '/../core/bootstrap.php';
 require_login();
+cms_require('edit');
 
-$pages = fetch_pages();
+$pages = array_values(array_filter(fetch_pages(), fn($p) => cms_can_page((int)$p['id'])));
 $user = current_user();
 
 // Build tree
@@ -53,7 +54,7 @@ function render_page_rows(array $nodes, int $level = 0, ?int $parentId = null): 
                     <?php else: ?>
                         <span class="tree-spacer" aria-hidden="true"></span>
                     <?php endif; ?>
-                    <span class="page-title-text"><?= e($page['title']) ?>
+                    <span class="page-title-text"><a href="<?= e(site_url('/admin/editor.php?id='.$page['id'])) ?>"><?= e($page['title']) ?></a>
                         <?php if (!empty($page['is_home'])): ?>
                             <span class="badge badge-accent" style="font-size:.6rem;margin-left:4px">Home</span>
                         <?php endif; ?>
@@ -66,14 +67,15 @@ function render_page_rows(array $nodes, int $level = 0, ?int $parentId = null): 
                       role="button" tabindex="0"
                       data-page-id="<?= (int)$page['id'] ?>"
                       data-status="<?= e($page['status']) ?>">
-                    <?= $page['status'] === 'published' ? 'Veröffentlicht' : 'Entwurf' ?>
+                    <?= e(($page['status']==='published' && $page['publish_at'] && $page['publish_at']>cms_now()) ? 'Geplant' : (cms_statuses()[$page['status']] ?? $page['status'])) ?>
                 </span>
             </td>
             <td style="font-size:.78rem;color:var(--text-subtle)"><?= e($changed) ?></td>
             <td>
                 <div class="action-row">
                     <a class="btn btn-secondary btn-sm" href="<?= e(site_url('/admin/editor.php?id='.$page['id'])) ?>">Bearbeiten</a>
-                    <a class="btn btn-ghost btn-sm" href="<?= e(page_url($page)) ?>" target="_blank" rel="noopener" title="Ansehen">↗</a>
+                    <a class="btn btn-ghost btn-sm" href="<?= e(site_url('/admin/preview.php?id='.$page['id'])) ?>" target="_blank" rel="noopener" title="Vorschau">↗</a>
+                    <a class="btn btn-ghost btn-sm" href="<?= e(site_url('/admin/history.php?id='.$page['id'])) ?>" title="Versionen, Duplikate und Übersetzungen">↺</a>
                     <div class="move-controls">
                         <button type="button" class="btn btn-ghost btn-sm page-move-btn" data-move="up"      data-id="<?= (int)$page['id'] ?>" title="Nach oben">↑</button>
                         <button type="button" class="btn btn-ghost btn-sm page-move-btn" data-move="down"    data-id="<?= (int)$page['id'] ?>" title="Nach unten">↓</button>
@@ -81,7 +83,7 @@ function render_page_rows(array $nodes, int $level = 0, ?int $parentId = null): 
                         <button type="button" class="btn btn-ghost btn-sm page-move-btn" data-move="outdent" data-id="<?= (int)$page['id'] ?>" title="Hochstufen">←</button>
                     </div>
                     <?php if (empty($page['is_home'])): ?>
-                        <form method="post" action="<?= e(site_url('/admin/page_delete.php')) ?>" data-confirm="Seite '<?= e($page['title']) ?>' wirklich löschen?" data-confirm-title="Seite löschen" style="display:inline">
+                        <form method="post" action="<?= e(site_url('/admin/page_delete.php')) ?>" data-confirm="Seite '<?= e($page['title']) ?>' und ihre Unterseiten in den Papierkorb verschieben?" data-confirm-title="In den Papierkorb" style="display:inline">
                             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
                             <input type="hidden" name="id" value="<?= (int)$page['id'] ?>">
                             <button class="btn btn-danger btn-sm" type="submit" title="Löschen">✕</button>
@@ -107,16 +109,16 @@ $draftCount = $totalCount - $publishedCount;
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title>Seitenverwaltung – WebCMS</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="<?= e(google_fonts_url()) ?>" rel="stylesheet">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/site.css')) ?>">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/admin.css')) ?>">
+    <link rel="stylesheet" href="<?= e(site_url('/assets/css/workspace.css')) ?>">
     <style>:root{<?= theme_css_vars() ?>}</style>
 </head>
 <body class="admin-body">
 <?php include __DIR__ . '/_sidebar.php'; ?>
 
 <main class="cms-main">
+    <?php if (!empty($_SESSION['flash_error'])): ?><div class="alert alert-danger" role="alert"><?= e($_SESSION['flash_error']) ?></div><?php unset($_SESSION['flash_error']); endif; ?>
     <div class="cms-topbar">
         <div class="topbar-left">
             <div class="view-header-line"></div>

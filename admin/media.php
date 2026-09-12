@@ -2,8 +2,13 @@
 declare(strict_types=1);
 require __DIR__ . '/../core/bootstrap.php';
 require_login();
+cms_require('media');
 
 $media = media_items();
+$folders = array_unique(array_column($media, 'folder'));
+$selectedFolder = (string)($_GET['folder'] ?? '*');
+$mediaQuery = trim((string)($_GET['q'] ?? ''));
+$media = array_values(array_filter($media, fn($m) => ($selectedFolder === '*' || $m['folder'] === $selectedFolder) && ($mediaQuery === '' || stripos($m['original_name'] . ' ' . $m['alt_text'] . ' ' . $m['copyright'], $mediaQuery) !== false)));
 $flash = $_SESSION['flash'] ?? '';
 $flashError = $_SESSION['flash_error'] ?? '';
 unset($_SESSION['flash']);
@@ -16,10 +21,9 @@ unset($_SESSION['flash_error']);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title>Mediathek – WebCMS</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="<?= e(google_fonts_url()) ?>" rel="stylesheet">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/site.css')) ?>">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/admin.css')) ?>">
+    <link rel="stylesheet" href="<?= e(site_url('/assets/css/workspace.css')) ?>">
     <style>:root{<?= theme_css_vars() ?>}</style>
 </head>
 <body class="admin-body">
@@ -68,6 +72,7 @@ unset($_SESSION['flash_error']);
         </div>
     </div>
 
+    <form method="get" class="workspace-toolbar"><input class="input" name="q" aria-label="Medien suchen" value="<?= e($mediaQuery) ?>" placeholder="Dateiname, Alternativtext, Urheber …"><select class="select" name="folder" aria-label="Medienordner"><option value="*">Alle Ordner</option><?php foreach ($folders as $folder): ?><option value="<?= e($folder) ?>" <?= $folder === $selectedFolder ? 'selected' : '' ?>><?= e($folder ?: 'Ohne Ordner') ?></option><?php endforeach; ?></select><button class="btn btn-secondary">Filtern</button></form>
     <div class="panel">
         <div class="panel-header">
             <h3>Alle Dateien <span class="badge badge-neutral" style="margin-left:6px"><?= count($media) ?></span></h3>
@@ -96,6 +101,7 @@ unset($_SESSION['flash_error']);
                             <div class="media-card-info">
                                 <div class="media-card-name" title="<?= e($m['original_name']) ?>"><?= e($m['original_name']) ?></div>
                                 <div class="media-card-size"><?= e(format_bytes((int)$m['size'])) ?></div>
+                                <a class="btn btn-ghost btn-sm" href="<?= e(site_url('/admin/media_details.php?id='.$m['id'])) ?>">Details & Ordner</a>
                                 <button class="btn btn-ghost btn-sm" type="button" data-rename-media="<?= (int)$m['id'] ?>" data-current-name="<?= e($m['original_name']) ?>">Umbenennen</button>
                             </div>
                             <div style="display:flex;gap:4px;padding:6px 8px;border-top:1px solid var(--border)">

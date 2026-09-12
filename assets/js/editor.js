@@ -221,7 +221,48 @@
 
   // Dirty-state tracking
   let isDirty = false;
-  function markDirty() { isDirty = true; }
+  let draftTimer;
+  let undoStack = [], redoStack = [];
+  const editorContext = window.CMS_EDITOR_CONTEXT || {};
+  const draftKey = `webcms-draft:${location.pathname}:${editorContext.user_id}:${editorContext.page_id || 'new'}`;
+  const draftState = document.getElementById('draftState');
+  function editorSnapshot() {
+    flushActiveField();
+    const fields = {};
+    new FormData(pageForm).forEach((value, key) => {
+      if (!['_csrf','blocks_json'].includes(key)) fields[key] = value;
+    });
+    pageForm.querySelectorAll('input[type="checkbox"][name]').forEach(input => { fields[input.name] = input.checked ? input.value : ''; });
+    return { blocks: cloneData(blocks), fields, date: new Date().toISOString() };
+  }
+  function stateKey(snapshot) { return JSON.stringify([snapshot.blocks,snapshot.fields]); }
+  function saveLocalDraft() {
+    const snapshot = editorSnapshot();
+    if (!undoStack.length || stateKey(snapshot) !== stateKey(undoStack[undoStack.length-1])) {
+      undoStack.push(snapshot); if (undoStack.length > 60) undoStack.shift(); redoStack = [];
+    }
+    try { localStorage.setItem(draftKey, JSON.stringify(snapshot)); if (draftState) draftState.textContent = 'Entwurf in diesem Browser gesichert'; }
+    catch (_) { if (draftState) draftState.textContent = 'Browserspeicher voll – bitte speichern'; }
+    updateHistoryButtons();
+  }
+  function updateHistoryButtons() {
+    const undo = document.getElementById('editorUndo'), redo = document.getElementById('editorRedo');
+    if (undo) undo.disabled = undoStack.length < 2;
+    if (redo) redo.disabled = redoStack.length === 0;
+  }
+  function applySnapshot(snapshot) {
+    if (!Array.isArray(snapshot.blocks)) return;
+    blocks = cloneData(snapshot.blocks);
+    Object.entries(snapshot.fields || {}).forEach(([name,value]) => {
+      const input = pageForm.elements.namedItem(name);
+      if (!input || ['_csrf','id'].includes(name)) return;
+      if (input.type === 'checkbox') input.checked = !!value; else input.value = value;
+    });
+    selectedBlockIndex = null; renderCanvas(); updateSlugPreview(); isDirty = true;
+  }
+  function markDirty() { isDirty = true; clearTimeout(draftTimer); draftTimer = setTimeout(saveLocalDraft, 600); }
+  pageForm.addEventListener('input', markDirty);
+  pageForm.addEventListener('change', markDirty);
 
   window.addEventListener('beforeunload', (e) => {
     if (isDirty) { e.preventDefault(); e.returnValue = ''; }
@@ -255,9 +296,13 @@
         }
       }
       blocksJsonInput.value = JSON.stringify(blocks);
-      try { await fetch(pageForm.action, { method: 'POST', body: new FormData(pageForm) }); } catch (_) {}
-      isDirty = false;
-      window.location.href = destination;
+      try {
+        const response = await fetch(pageForm.action, { method: 'POST', headers: {Accept:'application/json'}, body: new FormData(pageForm) });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.message || 'Speichern fehlgeschlagen.');
+        clearTimeout(draftTimer); try { localStorage.removeItem(draftKey); } catch (_) {}
+        isDirty = false; window.location.href = destination;
+      } catch (error) { toast('error', 'Nicht gespeichert', error.message); }
     });
 
     overlay.querySelector('#unsavedDiscard').addEventListener('click', () => {
@@ -779,6 +824,13 @@
         </div>`;
         break;
 
+      case 'collection': case 'managed_form': case 'shared': case 'downloads': case 'search': case 'map': {
+        const names = {collection:'Sammlung',managed_form:'Formular',shared:'Geteilte Inhalte',downloads:'Downloads',search:'Suche',map:'Standort'};
+        const options = window.CMS_MODULE_OPTIONS || {};
+        const detail = type === 'collection' ? options.kinds?.[s.kind] : type === 'managed_form' ? options.forms?.[s.form_id] : type === 'shared' ? options.pages?.[s.page_id] : s.folder || s.address || '';
+        preview = `<div class="editor-module-preview"><span class="section-label">${ce(names[type])}</span><h2>${ce(s.heading || detail || names[type])}</h2><p>${ce(detail || 'Über die Block-Einstellungen auswählen')}</p><small>Die aktuellen Inhalte werden in der gespeicherten Vorschau und auf der Website angezeigt.</small></div>`;
+        break;
+      }
       default:
         preview = `<div style="padding:2rem;text-align:center;color:var(--text-tertiary)">Unbekannter Block-Typ: ${ce(type)}</div>`;
     }
@@ -786,10 +838,11 @@
     return `<div class="cms-block ${selectedBlockIndex === index ? 'selected' : ''}" data-index="${index}">
       <div class="block-type-tag">${ce(type)}</div>
       <div class="block-toolbar">
-        ${index > 0 ? '<button class="block-tool" data-action="up"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg></button>' : ''}
-        ${index < blocks.length - 1 ? '<button class="block-tool" data-action="down"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></button>' : ''}
-        <button class="block-tool" data-action="edit"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg></button>
-        <button class="block-tool delete" data-action="delete"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg></button>
+        ${index > 0 ? '<button class="block-tool" aria-label="Block nach oben" title="Block nach oben" data-action="up"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg></button>' : ''}
+        ${index < blocks.length - 1 ? '<button class="block-tool" aria-label="Block nach unten" title="Block nach unten" data-action="down"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></button>' : ''}
+        <button class="block-tool" aria-label="Block bearbeiten" title="Block bearbeiten" data-action="edit"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg></button>
+        <button class="block-tool" data-action="duplicate" aria-label="Block duplizieren" title="Block duplizieren">⧉</button>
+        <button class="block-tool delete" aria-label="Block entfernen" title="Block entfernen" data-action="delete"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg></button>
       </div>
       ${preview}
     </div>`;
@@ -834,6 +887,9 @@
           renderCanvas();
         } else if (action === 'edit') {
           openSettingsModal(index);
+        } else if (action === 'duplicate') {
+          const copy = cloneData(blocks[index]); copy.id = 'b' + Date.now() + Math.random().toString(16).slice(2);
+          blocks.splice(index + 1, 0, copy); selectedBlockIndex = index + 1; markDirty(); renderCanvas();
         } else if (action === 'delete') {
           if (await cmsEditorConfirm({
             title: 'Block löschen',
@@ -1280,12 +1336,21 @@
           <option value="medium" ${(!s.size||s.size==='medium')?'selected':''}>Mittel (4rem)</option>
           <option value="large" ${s.size==='large'?'selected':''}>Groß (6rem)</option>
         </select></label>`;
+    } else if (['collection','managed_form','shared','downloads','search','map'].includes(type)) {
+      const options = window.CMS_MODULE_OPTIONS || {};
+      const select = (name, label, values, current) => `<label><span>${ce(label)}</span><select name="${name}" class="w-full"><option value="">Bitte wählen</option>${Object.entries(values || {}).map(([key,label]) => `<option value="${ce(key)}" ${String(current)===String(key)?'selected':''}>${ce(label)}</option>`).join('')}</select></label>`;
+      formFields = type === 'shared' ? '' : `<label><span>Überschrift</span><input name="heading" class="w-full" value="${esc(s.heading||'')}"></label>`;
+      if (type === 'collection') formFields += select('kind','Sammlung',options.kinds,s.kind) + `<label><span>Kategorie (optional)</span><input name="category" value="${esc(s.category||'')}" class="w-full"></label><label><span>Sprache (optional)</span><input name="language" value="${esc(s.language||'')}" class="w-full"></label><label><span>Anzahl</span><input type="number" name="limit" min="1" max="50" value="${esc(s.limit||6)}" class="w-full"></label>`;
+      if (type === 'managed_form') formFields += select('form_id','Formular',options.forms,s.form_id);
+      if (type === 'shared') formFields += select('page_id','Quellseite',options.pages,s.page_id);
+      if (type === 'downloads') formFields += `<label><span>Medienordner (leer = ohne Ordner)</span><input name="folder" value="${esc(s.folder||'')}" class="w-full"></label>`;
+      if (type === 'map') formFields += `<label><span>Adresse</span><textarea name="address" class="w-full">${esc(s.address||'')}</textarea></label>`;
     } else if (type === 'html') {
       formFields = `
         <label><span>HTML-Code</span><textarea name="code" class="w-full font-mono" rows="15" style="font-size:.85rem">${esc(s.code||'')}</textarea></label>`;
     }
 
-    overlay.innerHTML = `<div class="block-settings-modal">
+    overlay.innerHTML = `<div class="block-settings-modal" role="dialog" aria-modal="true" aria-label="Block bearbeiten">
       <div class="modal-head">
         <h3>${ce(type.charAt(0).toUpperCase()+type.slice(1))} bearbeiten</h3>
         <button type="button" class="modal-close" onclick="this.closest('.block-settings-overlay').remove()">
@@ -1684,6 +1749,7 @@
   const slugPartInput = document.getElementById('slug_part');
   const parentSelect  = document.getElementById('parent_id');
   const slugPreview   = document.getElementById('slugFullPreview');
+  if (slugPartInput && editorContext.page_id) slugPartInput.dataset.manuallyEdited = 'true';
 
   function updateSlugPreview() {
     if (!slugPreview || !slugPartInput) return;
@@ -1718,6 +1784,8 @@
   // Form Submit: flush active contenteditable, then serialise blocks
   // ---------------------------------------------------------------------------
   pageForm.addEventListener('submit', () => {
+    clearTimeout(draftTimer);
+    saveLocalDraft();
     isDirty = false;
     const active = document.activeElement;
     if (active && active.dataset.field) {
@@ -1746,6 +1814,43 @@
   // ---------------------------------------------------------------------------
   // Initial Render
   // ---------------------------------------------------------------------------
+  document.getElementById('blockSearch')?.addEventListener('input', event => {
+    const query = event.target.value.toLocaleLowerCase('de');
+    document.querySelectorAll('[data-add-block]').forEach(button => { button.hidden = !button.textContent.toLocaleLowerCase('de').includes(query); });
+  });
+  document.querySelectorAll('[data-device]').forEach(button => button.addEventListener('click', () => {
+    document.querySelector('.editor-canvas').dataset.device = button.dataset.device;
+    document.querySelectorAll('[data-device]').forEach(b => b.setAttribute('aria-pressed',String(b === button)));
+  }));
+  document.getElementById('editorUndo')?.addEventListener('click', () => {
+    clearTimeout(draftTimer);
+    const current = editorSnapshot();
+    if (stateKey(current) !== stateKey(undoStack[undoStack.length-1])) undoStack.push(current);
+    if (undoStack.length > 1) { redoStack.push(undoStack.pop()); applySnapshot(undoStack[undoStack.length-1]); }
+    updateHistoryButtons();
+  });
+  document.getElementById('editorRedo')?.addEventListener('click', () => {
+    clearTimeout(draftTimer);
+    if (redoStack.length) { const next = redoStack.pop(); undoStack.push(next); applySnapshot(next); }
+    updateHistoryButtons();
+  });
+  document.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); pageForm.requestSubmit(); }
+  });
+  document.getElementById('exportLocalDraft')?.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(editorSnapshot(),null,2)],{type:'application/json'});
+    const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'webcms-entwurf.json'; anchor.click(); URL.revokeObjectURL(url);
+  });
   renderCanvas();
+  undoStack = [editorSnapshot()]; updateHistoryButtons();
+  try {
+    if (editorContext.saved) localStorage.removeItem(draftKey);
+    const stored = JSON.parse(localStorage.getItem(draftKey) || 'null');
+    if (stored && Array.isArray(stored.blocks) && stateKey(stored) !== stateKey(undoStack[0])) {
+      const restore = document.getElementById('restoreLocalDraft'); restore.hidden = false;
+      draftState.textContent = 'Ein lokaler Entwurf ist vorhanden';
+      restore.addEventListener('click', () => { applySnapshot(stored); markDirty(); restore.hidden = true; });
+    }
+  } catch (_) {}
 
 })();

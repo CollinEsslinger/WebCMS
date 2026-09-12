@@ -17,9 +17,7 @@ function site_url(string $path = ''): string {
 
     // Strip everything up to and including /admin/* or /index.php
     $base = preg_replace('#/admin(/.*)?$#', '', $script);
-    $base = preg_replace('#/install\.php$#', '', $base);
-    $base = preg_replace('#/page\.php$#', '', $base);
-    $base = preg_replace('#/index\.php$#', '', $base);
+    $base = preg_replace('#/[^/]+\.php$#', '', $base);
     $base = rtrim($base, '/');
 
     return $scheme . '://' . $host . $base . $path;
@@ -299,7 +297,7 @@ function logo_text_after(): string {
 // ─── PAGES ──────────────────────────────────────────────────
 
 function fetch_pages(): array {
-    return db()->query('SELECT * FROM pages ORDER BY sort_order ASC, id ASC')->fetchAll();
+    return db()->query('SELECT * FROM pages WHERE deleted_at IS NULL ORDER BY sort_order ASC, id ASC')->fetchAll();
 }
 
 function fetch_page_by_id(int $id): ?array {
@@ -310,12 +308,8 @@ function fetch_page_by_id(int $id): ?array {
 }
 
 function fetch_page_by_slug(string $slug): ?array {
-    $stmt = db()->prepare('SELECT * FROM pages WHERE slug = ? AND status = ? LIMIT 1');
-    $stmt->execute([$slug, 'published']);
-    $p = $stmt->fetch();
-    if ($p) return $p;
-
-    return fetch_page_by_tree_path($slug);
+    foreach (cms_public_pages() as $page) if (trim($page['slug'], '/') === trim($slug, '/')) return $page;
+    return null;
 }
 
 function fetch_page_by_tree_path(string $path): ?array {
@@ -353,9 +347,8 @@ function fetch_page_by_tree_path(string $path): ?array {
 }
 
 function fetch_home_page(): ?array {
-    $stmt = db()->query('SELECT * FROM pages WHERE is_home = 1 AND status = "published" LIMIT 1');
-    $p = $stmt->fetch();
-    return $p ?: null;
+    foreach (cms_public_pages() as $page) if ($page['is_home']) return $page;
+    return null;
 }
 
 function slugify(string $text): string {
@@ -447,13 +440,7 @@ function save_page(array $data, ?int $id = null): int {
 }
 
 function delete_page(int $id): void {
-    $page = fetch_page_by_id($id);
-    if (!$page) return;
-    if ($page['is_home']) throw new RuntimeException('Startseite kann nicht gelöscht werden.');
-    // Detach children to root level
-    db()->prepare('UPDATE pages SET parent_id = NULL WHERE parent_id = ?')->execute([$id]);
-    db()->prepare('DELETE FROM pages WHERE id = ?')->execute([$id]);
-    update_descendant_slugs(null);
+    cms_trash_page($id);
 }
 
 function is_descendant(int $maybeChildId, int $ancestorId): bool {
@@ -534,7 +521,7 @@ function move_page(int $movedId, int $targetId, string $mode): void {
 
 function page_url(array $page): string {
     if (!empty($page['is_home'])) return site_url('/');
-    return site_url('/' . page_public_path($page));
+    return site_url('/' . trim($page['slug'], '/'));
 }
 
 function page_public_path(array $page): string {
@@ -673,6 +660,14 @@ function block_types(): array {
         'html'         => ['label' => 'Custom HTML',  'icon' => '⚡', 'desc' => 'Beliebiges HTML'],
     ];
     $types['carousel'] = ['label' => 'Karussell', 'icon' => 'K', 'desc' => 'Laufende Bilderzeile'];
+    $types += [
+        'collection'=>['label'=>'Sammlung','icon'=>'▦','desc'=>'Nachrichten, Kalender und Verzeichnisse dynamisch anzeigen'],
+        'managed_form'=>['label'=>'Formular einbinden','icon'=>'☷','desc'=>'Ein zentral verwaltetes Formular auswählen'],
+        'shared'=>['label'=>'Geteilte Inhalte','icon'=>'⇄','desc'=>'Veröffentlichte Inhalte einer anderen Seite wiederverwenden'],
+        'downloads'=>['label'=>'Downloads','icon'=>'↓','desc'=>'Dateien eines Medienordners anzeigen'],
+        'search'=>['label'=>'Suche','icon'=>'⌕','desc'=>'Volltextsuche der Website'],
+        'map'=>['label'=>'Standort','icon'=>'◎','desc'=>'Adresse mit Link zu OpenStreetMap'],
+    ];
     if (!is_admin()) {
         unset($types['html']);
     }
@@ -680,6 +675,13 @@ function block_types(): array {
 }
 
 function block_default_settings(string $type): array {
+    $modules = [
+        'collection'=>['heading'=>'Aktuelles','kind'=>'news','category'=>'','language'=>'','limit'=>6],
+        'managed_form'=>['heading'=>'Kontakt','form_id'=>''],
+        'shared'=>['page_id'=>''], 'downloads'=>['heading'=>'Downloads','folder'=>''],
+        'search'=>['heading'=>'Was suchen Sie?'], 'map'=>['heading'=>'Hier finden Sie uns','address'=>''],
+    ];
+    if (isset($modules[$type])) return $modules[$type];
     $defaults = [
         'hero' => ['eyebrow'=>'Willkommen','heading'=>'Ihre Vision. Unser Code.','text'=>'Wir bauen moderne Web-Erlebnisse.','primaryLabel'=>'Loslegen','primaryUrl'=>'#','secondaryLabel'=>'Mehr erfahren','secondaryUrl'=>'#'],
         'text' => ['label'=>'','heading'=>'Eine Überschrift','text'=>'Klicken Sie hier, um den Text zu bearbeiten.','align'=>'left'],

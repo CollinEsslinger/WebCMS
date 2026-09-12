@@ -5,10 +5,11 @@ DirectoryIndex index.php
     RewriteEngine On
 
     # Block access to core, templates, config
-    RewriteRule ^(core|templates|config\.php) - [F,L]
+    RewriteRule ^(core|templates|tests|docs|config\.php|router\.php) - [F,L]
 
     # Do not execute PHP files from uploaded media/storage.
-    RewriteRule ^storage/.*\.(php|phtml|phar)$ - [F,L]
+    RewriteRule ^storage/(?!uploads/).*$ - [F,L]
+    RewriteRule ^storage/.*\.(php|phtml|phar)$ - [F,L,NC]
 
     # Pass everything except real files/directories to page.php
     RewriteCond %{REQUEST_FILENAME} !-f

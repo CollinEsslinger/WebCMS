@@ -2,9 +2,11 @@
 declare(strict_types=1);
 require __DIR__ . '/../core/bootstrap.php';
 require_login();
+cms_require('edit');
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : null;
 $page = $id ? fetch_page_by_id($id) : null;
+if ($id && (!$page || !cms_can_page($id) || $page['deleted_at'])) { http_response_code(403); exit('Seite nicht gefunden oder keine Bearbeitungsrechte.'); }
 $saved = !empty($_GET['saved']);
 
 if (!$page) {
@@ -21,7 +23,12 @@ if (!$page) {
     ];
 }
 
-$allPages = fetch_pages();
+$failedForm = $_SESSION['failed_page_form'] ?? null;
+if ($failedForm && (int)($failedForm['id'] ?? 0) === (int)$id) {
+    $page = array_merge($page, $failedForm);
+    unset($_SESSION['failed_page_form']);
+}
+$allPages = array_values(array_filter(fetch_pages(), fn($p) => cms_can_page((int)$p['id'])));
 $slugParts = array_values(array_filter(explode('/', (string)$page['slug'])));
 $slugPart = $slugParts ? end($slugParts) : (string)$page['slug'];
 $mediaList = media_items();
@@ -36,10 +43,9 @@ unset($_SESSION['flash_error']);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title>Editor – <?= e($page['title']) ?></title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="<?= e(google_fonts_url()) ?>" rel="stylesheet">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/site.css')) ?>">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/admin.css')) ?>">
+    <link rel="stylesheet" href="<?= e(site_url('/assets/css/workspace.css')) ?>">
     <style>:root{<?= theme_css_vars() ?>}</style>
 </head>
 <body class="editor-body">
@@ -57,6 +63,7 @@ unset($_SESSION['flash_error']);
         </div>
 
         <form id="pageForm" method="post" action="<?= e(site_url('/admin/page_save.php')) ?>">
+            <input type="hidden" name="version" value="<?= (int)($page['version'] ?? 1) ?>">
             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
             <input type="hidden" name="id" value="<?= e((string)$page['id']) ?>">
             <input type="hidden" name="blocks_json" id="blocksJson">
@@ -106,7 +113,7 @@ unset($_SESSION['flash_error']);
 
                 <div class="form-group">
                     <label class="form-label" for="slug_part">URL-Slug</label>
-                    <input class="input font-mono" id="slug_part" name="slug_part" value="<?= e($slugPart) ?>" required>
+                    <input class="input font-mono" id="slug_part" name="slug_part" value="<?= e($failedForm['slug_part'] ?? $slugPart) ?>" <?= empty($page['is_home'])?'required':'' ?>>
                     <span class="form-hint">Vollständig: /<code id="slugFullPreview"><?= e((string)$page['slug']) ?></code></span>
                 </div>
 
@@ -120,7 +127,11 @@ unset($_SESSION['flash_error']);
                         <label class="form-label" for="status">Status</label>
                         <select class="select" id="status" name="status">
                             <option value="draft" <?= $page['status']==='draft'?'selected':'' ?>>Entwurf</option>
-                            <option value="published" <?= $page['status']==='published'?'selected':'' ?>>Veröffentlicht</option>
+                            <option value="review" <?= $page['status']==='review'?'selected':'' ?>>Zur Freigabe</option>
+                            <?php if (cms_can('publish')): ?>
+                            <option value="published" <?= $page['status']==='published'?'selected':'' ?>>Veröffentlicht / geplant</option>
+                            <option value="archived" <?= $page['status']==='archived'?'selected':'' ?>>Offline</option>
+                            <?php endif; ?>
                         </select>
                     </div>
                     <div class="form-group" style="margin-bottom:0">
@@ -135,8 +146,10 @@ unset($_SESSION['flash_error']);
 
             <div class="divider"></div>
 
+            <?php include __DIR__ . '/_editor_options.php'; ?>
             <div class="editor-section">
                 <h4>Blöcke hinzufügen</h4>
+                <input class="input" id="blockSearch" aria-label="Blöcke suchen" placeholder="Baustein suchen …" style="margin-bottom:12px">
                 <div class="block-palette">
                     <?php foreach ($blockTypes as $type => $meta): ?>
                         <button type="button" class="block-btn" data-add-block="<?= e($type) ?>" title="<?= e($meta['desc']) ?>">
@@ -181,7 +194,8 @@ unset($_SESSION['flash_error']);
             <div class="editor-actions">
                 <button class="btn btn-primary w-full" type="submit">💾  Speichern</button>
                 <?php if (!empty($page['id'])): ?>
-                    <a class="btn btn-secondary btn-sm" href="<?= e(site_url('/' . ($page['is_home'] ? '' : $page['slug']))) ?>" target="_blank" rel="noopener">Vorschau ↗</a>
+                    <a class="btn btn-secondary btn-sm" href="<?= e(site_url('/admin/preview.php?id=' . $page['id'])) ?>" target="_blank" rel="noopener">Vorschau ↗</a>
+                    <a class="btn btn-secondary btn-sm" href="<?= e(site_url('/admin/history.php?id=' . $page['id'])) ?>">Versionen & Notizen</a>
                 <?php endif; ?>
             </div>
         </form>
@@ -195,6 +209,8 @@ unset($_SESSION['flash_error']);
     </aside>
 
     <main class="editor-canvas">
+        <button class="btn btn-primary btn-sm" style="position:fixed;bottom:22px;right:24px;z-index:40" type="submit" form="pageForm">Speichern · Strg+S</button>
+        <div class="editor-v2-toolbar"><button class="btn btn-secondary btn-sm" type="button" id="editorUndo">↶ Rückgängig</button><button class="btn btn-secondary btn-sm" type="button" id="editorRedo">↷ Wiederholen</button><button class="btn btn-ghost btn-sm" type="button" data-device="desktop">Desktop</button><button class="btn btn-ghost btn-sm" type="button" data-device="tablet">Tablet</button><button class="btn btn-ghost btn-sm" type="button" data-device="mobile">Mobil</button><span id="draftState" role="status"></span><button class="btn btn-ghost btn-sm" type="button" id="restoreLocalDraft" hidden>Lokalen Entwurf laden</button><button class="btn btn-ghost btn-sm" type="button" id="exportLocalDraft">Entwurf exportieren</button></div>
         <?php if ($saved): ?>
             <div class="alert alert-success" style="margin-bottom:16px">
                 <span class="alert-icon">✓</span>
@@ -220,6 +236,8 @@ unset($_SESSION['flash_error']);
 <script src="<?= e(site_url('/assets/js/theme.js')) ?>"></script>
 <script src="<?= e(site_url('/assets/js/admin.js')) ?>"></script>
 <script>
+window.CMS_EDITOR_CONTEXT = <?= json_encode(['user_id'=>current_user()['id'],'page_id'=>$page['id'],'version'=>$page['version']??1,'saved'=>$saved], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+window.CMS_MODULE_OPTIONS = <?= json_encode(['kinds'=>cms_entry_types(),'forms'=>array_column(cms_rows('SELECT id,title FROM cms_forms ORDER BY title'),'title','id'),'pages'=>array_column($allPages,'title','id'),'folders'=>array_column(cms_rows('SELECT DISTINCT folder FROM media ORDER BY folder'),'folder')], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 window.CMS_MEDIA_LIBRARY = <?= json_encode(array_map(static function ($m) {
     return [
         'id' => (int)$m['id'],
@@ -228,7 +246,7 @@ window.CMS_MEDIA_LIBRARY = <?= json_encode(array_map(static function ($m) {
         'name' => (string)$m['original_name'],
         'size' => format_bytes((int)$m['size']),
     ];
-}, $mediaList), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+}, $mediaList), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 </script>
 <script src="<?= e(site_url('/assets/js/editor.js')) ?>"></script>
 </body>

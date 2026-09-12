@@ -6,7 +6,7 @@ $error = '';
 $installed = !empty($_GET['installed']);
 
 if (is_logged_in()) {
-    redirect('/admin/');
+    redirect('/admin/dashboard.php');
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($username === '' || $password === '') {
         $error = 'Benutzername und Passwort erforderlich.';
     } elseif (login_user($username, $password)) {
-        redirect('/admin/');
+        redirect('/admin/dashboard.php');
     } else {
         // Small delay to discourage brute force
         usleep(400000);
@@ -31,10 +31,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anmelden - WebCMS</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="<?= e(google_fonts_url()) ?>" rel="stylesheet">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/site.css')) ?>">
     <link rel="stylesheet" href="<?= e(site_url('/assets/css/admin.css')) ?>">
+    <link rel="stylesheet" href="<?= e(site_url('/assets/css/workspace.css')) ?>">
     <style>:root{<?= theme_css_vars() ?>}</style>
 </head>
 <body class="auth-body">

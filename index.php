@@ -6,8 +6,7 @@ require __DIR__ . '/core/render.php';
 $page = fetch_home_page();
 if (!$page) {
     // No home page set – show the first published page
-    $stmt = db()->query("SELECT * FROM pages WHERE status = 'published' ORDER BY sort_order ASC LIMIT 1");
-    $page = $stmt->fetch();
+    $page = cms_public_pages()[0] ?? null;
 }
 
 if (!$page) {
@@ -16,4 +15,5 @@ if (!$page) {
     exit;
 }
 
+cms_count_view($page);
 echo render_page_html($page);

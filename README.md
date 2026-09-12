@@ -1,6 +1,6 @@
 # WebCMS
 
-WebCMS ist ein schlankes PHP-basiertes Content-Management-System fuer kleine bis mittlere Websites. Inhalte werden im Admin-Bereich mit einem visuellen Block-Editor gepflegt, Seiten koennen hierarchisch organisiert werden und Medien werden direkt in der integrierten Mediathek verwaltet.
+WebCMS 2.0 ist ein PHP-basiertes Content-Management-System mit visuellem Blockeditor und einem modernen redaktionellen Arbeitsplatz. Bestehende Installationen werden beim ersten Aufruf additiv erweitert; Seiten, Benutzer, Medien und Einstellungen bleiben erhalten.
 
 ## Funktionen
 
@@ -15,6 +15,21 @@ WebCMS ist ein schlankes PHP-basiertes Content-Management-System fuer kleine bis
 - Website-Einstellungen fuer Name, Logo, Tagline, Meta Description, Akzentfarbe, Theme und Schriften
 - Unterstuetzung fuer MySQL und SQLite ueber PDO
 - Saubere URLs ueber Apache `mod_rewrite`
+- Dashboard mit Aufgaben, Freigaben und geplanten Veröffentlichungen
+- Arbeitsstände mit unverändertem öffentlichen Stand bis zur Freigabe
+- Versionen, Wiederherstellung, Redaktionsnotizen und Konfliktschutz
+- Lokale Entwurfssicherung, Rückgängig/Wiederholen und Geräteansichten
+- Zeitgesteuertes Veröffentlichen und Offline-Schalten
+- Papierkorb für Seiten und komplette Unterbäume
+- Mehrsprachige, miteinander verknüpfte Seiten
+- Geschützte Seiten für angemeldete Mitglieder
+- Rollen `admin`, `editor`, `publisher`, `author` und `viewer` sowie Seitenbereiche
+- Strukturierte Sammlungen für Nachrichten, Veranstaltungen, Verzeichnisse, Stellen/Ehrenamt, Unterkünfte, Bürgerservice, Umfragen, Forum und Newsletter
+- Formularbaukasten mit Pflichtfeldern, Auswahlfeldern, Einsendungs-Postfach und CSV-Export
+- Dynamische Blöcke für Sammlungen, Formulare, geteilte Inhalte, Downloads, Suche und Standorte
+- Volltextsuche, Sitemap, Canonical- und Sprach-Metadaten, Social-Vorschaubilder und Weiterleitungen
+- RSS-, iCalendar- und JSON-Schnittstellen sowie Inhaltsimport und -export
+- Optionale datensparsame Seitenaufrufstatistik
 
 ## Voraussetzungen
 
@@ -39,6 +54,16 @@ Fuer Uploads werden zusaetzlich die PHP-Funktionen fuer Datei-Uploads und `filei
 9. Danach unter `/admin/login.php` anmelden.
 
 Wichtig: Die Installation setzt die Datenbank zurueck. Beim Ausfuehren von `install.php` werden vorhandene Tabellen in der konfigurierten Datenbank geloescht und neu angelegt.
+
+## Update einer bestehenden Installation
+
+1. Vor dem Update Datenbank und `storage/uploads` sichern.
+2. Die neuen Dateien einspielen und `config.php` beibehalten.
+3. Eine beliebige CMS-Seite aufrufen. WebCMS führt die additive Schema-Migration automatisch aus.
+4. Als Administrator unter **Daten & Schnittstellen** Zeitzone, Statistik und optional den Newsletter-Absender prüfen.
+5. `install.php` nicht erneut ausführen; diese Seite ist ausschließlich für Neuinstallationen und setzt Daten zurück.
+
+Die Migration legt nur neue Spalten und Tabellen an. Vorhandene Inhalte werden nicht gelöscht. Bereits veröffentlichte Seiten erhalten automatisch einen öffentlichen Ausgangsstand, damit spätere Entwürfe die Website erst nach einer Freigabe verändern.
 
 ## Konfiguration
 
@@ -78,7 +103,37 @@ const UPLOAD_ALLOWED_EXT = ['jpg','jpeg','png','webp','gif','svg','mp4','webm','
 
 ### Admin-Bereich
 
-Der Admin-Bereich ist unter `/admin/` erreichbar. Nicht angemeldete Benutzer werden automatisch zum Login weitergeleitet.
+Der Admin-Bereich ist unter `/admin/` erreichbar. Nach der Anmeldung führt das Dashboard unter `/admin/dashboard.php` zu den wichtigsten Arbeitsbereichen. Nicht angemeldete Benutzer werden automatisch zum Login weitergeleitet.
+
+### Öffentliche Module und Schnittstellen
+
+- `/modules.php?kind=news` – Sammlungsansicht, zum Beispiel Nachrichten
+- `/modules.php?form=1` – veröffentlichtes Formular
+- `/search.php` – Website-Suche
+- `/sitemap.php` – XML-Sitemap
+- `/feed.php?format=rss` – Nachrichten als RSS
+- `/feed.php?format=ics` – Veranstaltungen als iCalendar
+- `/api.php?resource=pages` – veröffentlichte Seiten als JSON
+- `/api.php?resource=entries&kind=news` – veröffentlichte Sammlungsinhalte als JSON
+
+Die JSON-Schnittstellen geben ausschließlich freigegebene öffentliche Inhalte aus. Geschützte Seiten, Entwürfe, Benutzer und Formulareinsendungen werden nicht veröffentlicht.
+
+### Lokale Entwicklung und Tests
+
+Unter Apache verwendet WebCMS `.htaccess`. Für den eingebauten PHP-Server steht `router.php` zur Verfügung:
+
+```bash
+php -S localhost:8000 router.php
+```
+
+Die automatisierten Tests nutzen ausschließlich eine isolierte SQLite-Datenbank:
+
+```bash
+php -d extension=pdo_sqlite tests/run.php
+php -d extension=pdo_sqlite tests/seed.php
+php -d extension=pdo_sqlite -S 127.0.0.1:8099 tests/router.php
+node tests/http.mjs
+```
 
 ### Seiten verwalten
 

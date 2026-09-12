@@ -38,7 +38,7 @@ function logout_user(): void {
 }
 
 function is_logged_in(): bool {
-    return !empty($_SESSION['user_id']);
+    return !empty($_SESSION['user_id']) && current_user() !== null;
 }
 
 function require_login(): void {
@@ -49,7 +49,7 @@ function require_login(): void {
 }
 
 function current_user(): ?array {
-    if (!is_logged_in()) return null;
+    if (empty($_SESSION['user_id'])) return null;
     static $cached = null;
     if ($cached !== null) return $cached;
     $stmt = db()->prepare('SELECT id, username, role, email, created_at, last_login FROM users WHERE id = ? LIMIT 1');
@@ -82,7 +82,7 @@ function csrf_token(): string {
 
 function csrf_check(): void {
     $token = $_POST['_csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-    if (!hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !is_string($token) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
         http_response_code(403);
         die('CSRF-Token ungültig. Bitte Seite neu laden.');
     }

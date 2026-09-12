@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/../core/bootstrap.php';
 require_login();
+cms_require('media');
 csrf_check();
 
 $id = (int)($_POST['id'] ?? 0);

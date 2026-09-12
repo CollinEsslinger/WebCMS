@@ -10,6 +10,8 @@ if ($slug === '') {
 
 $page = fetch_page_by_slug($slug);
 if (!$page) {
+    $rule = cms_row('SELECT * FROM redirects WHERE source_path = ?', ['/' . $slug]);
+    if ($rule) { header('Location: ' . site_url($rule['target_path']), true, (int)$rule['http_code']); exit; }
     http_response_code(404);
     echo '<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Seite nicht gefunden</title>';
     echo '<link rel="stylesheet" href="' . e(site_url('/assets/css/site.css')) . '"></head><body>';
@@ -19,4 +21,5 @@ if (!$page) {
     exit;
 }
 
+cms_count_view($page);
 echo render_page_html($page);
